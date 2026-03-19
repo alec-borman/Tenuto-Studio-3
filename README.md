@@ -1,20 +1,58 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Tenuto Studio 3
 
-# Run and deploy your AI Studio app
+Tenuto Studio 3 is a comprehensive music notation and composition environment. It combines a custom domain-specific language (Tenuto) with a high-performance Rust-based compilation engine, real-time audio synthesis, and WebGL-accelerated visualization.
 
-This contains everything you need to run your app locally.
+## Features
 
-View your app in AI Studio: https://ai.studio/apps/9870a0f6-31b5-4bb0-bb1c-a77e8703c586
+- **Tenuto DSL**: A powerful, expressive language for defining complex musical structures.
+- **Rust-Powered Engine**: Fast compilation and engraving using Rust (`tenutoc`).
+- **Real-time Audio**: Integrated playback using Tone.js.
+- **Visual Rendering**: WebGL-based rendering for smooth, responsive score visualization.
+- **IDE Experience**: Syntax-highlighted editing powered by Monaco Editor.
 
-## Run Locally
+## Architecture
 
-**Prerequisites:**  Node.js
+- **Frontend**: React, Monaco Editor, Tone.js.
+- **Compiler/Backend**: Rust (`tenutoc` crate for compilation/engraving, `tenutod` for OSC/scheduling).
+- **Build System**: Vite.
 
+## Getting Started
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### Prerequisites
+
+- Node.js (v18+)
+- Rust & Cargo (latest stable)
+
+### Installation
+
+1. Clone the repository.
+2. Install frontend dependencies:
+   ```bash
+   npm install
+   ```
+3. Build the Rust components:
+   ```bash
+   cd tenutoc && cargo build --release
+   cd ../tenutod && cargo build --release
+   ```
+
+### Running the Development Server
+
+```bash
+npm run dev
+```
+
+## Project Structure
+
+- `/src`: Frontend React application and compiler/engraver logic.
+- `/tenutoc`: Rust crate for Tenuto compilation and engraving.
+- `/tenutod`: Rust daemon for scheduling and OSC communication.
+- `/public`: Static assets and Web Workers.
+
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request.
+
+## License
+
+[Add License Information Here]
