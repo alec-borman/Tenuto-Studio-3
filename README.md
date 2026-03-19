@@ -82,12 +82,40 @@ We provide the convenience of the cloud for power users and enterprises:
 ## Roadmap to 100% Compliance
 
 ### Current Implementation Status
-| Component | Estimated Implementation |
-| :--- | :--- |
-| Core Compiler (tenutoc) | [X]% |
-| TEAS (Engraving) | [X]% |
-| Audio/Visual Engine | [X]% |
-| Decompiler & Ecosystem | [X]% |
+| Component | Estimated Implementation | Status Analysis |
+| :--- | :--- | :--- |
+| **Core Compiler (tenutoc)** | **65%** | Hand-rolled TS lexer/parser handles ~90% of syntax; Rust-to-WASM pipeline is in skeleton phase (0% of target spec). |
+| **TEAS (Engraving)** | **40%** | Basic Gourlay spacing and SVG export implemented; lacks Knuth-Plass justification and collision detection. |
+| **Audio/Visual Engine** | **30%** | Tone.js provides basic playback; lacks AudioWorklet SoundFont integration and advanced WebGL shaders. |
+| **Decompiler & Ecosystem** | **15%** | Basic MIDI-to-Tenuto stub exists; lacks MusicXML 4.0, macro extraction, and package management. |
+
+### Detailed Analysis & Gap Assessment
+
+#### 1. The Core Compiler (The Brain)
+- **Current**: A TypeScript-based hand-rolled lexer and recursive descent parser. It successfully handles nested tuplets, multiple voices, and measure-based scoping.
+- **Gaps**:
+  - **Rational Arithmetic**: Current timing uses floating-point numbers, leading to quantization errors in complex polymeters.
+  - **Formal Grammar**: The TS parser is fragile. The transition to a Rust-based `logos` lexer and `rowan` (lossless syntax tree) is required for LSP support.
+  - **LSP**: No real-time semantic feedback or auto-completion in Monaco.
+
+#### 2. TEAS (Engraving)
+- **Current**: Implements a basic version of Gourlay spacing (C * d^k) for horizontal layout. Supports simple system breaking and SVG rendering.
+- **Gaps**:
+  - **Justification**: Uses a simple stretch factor instead of the optimal Knuth-Plass line-breaking algorithm.
+  - **Collision Detection**: No logic to prevent slurs from intersecting with stems or accidentals.
+  - **Orchestral Support**: Lacks dynamic staff grouping and bracket rendering for large scores.
+
+#### 3. Audio/Visual Engine
+- **Current**: Standard Tone.js scheduling. WebGL piano roll provides basic visual feedback.
+- **Gaps**:
+  - **Synthesis**: Limited to generic oscillators or basic samples; requires a full AudioWorklet-based SoundFont engine for professional patches.
+  - **Visuals**: Piano roll is static; needs custom shaders for "hit" effects and smooth, clock-synced scrolling.
+
+#### 4. Decompiler & Ecosystem
+- **Current**: A basic Rust stub for MIDI ingestion.
+- **Gaps**:
+  - **Semantic Extraction**: No logic to identify motifs or compress repeated patterns into Tenuto macros ($macros).
+  - **Interop**: MusicXML 4.0 support is non-existent, limiting migration from Finale/Sibelius.
 
 ### Epic 1: The Core Compiler & WASM Integration (The Brain)
 The goal: A mathematically flawless, fully integrated Rust-to-WASM pipeline that parses 100% of the Tenuto 3.0 grammar.
