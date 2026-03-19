@@ -1,6 +1,8 @@
 # Tenuto Studio 3
 
-Tenuto Studio 3 is a comprehensive music notation and composition environment. It combines a custom domain-specific language (Tenuto) with a high-performance Rust-based compilation engine, real-time audio synthesis, and WebGL-accelerated visualization.
+Tenuto Studio 3 is the official web-based integrated development environment (IDE) for the Tenuto music notation language. It provides a seamless, high-performance interface for composing, visualizing, and synthesizing music using the Tenuto DSL. By leveraging a Rust-based compilation engine running in Web Workers and WebGL-accelerated score rendering, Tenuto Studio 3 offers a zero-latency, archival-safe, and AI-optimized environment for modern music production.
+
+Tenuto Studio 3 combines a custom domain-specific language (Tenuto) with a high-performance Rust-based compilation engine, real-time audio synthesis, and WebGL-accelerated visualization.
 
 ## Features
 
@@ -76,5 +78,58 @@ We provide the convenience of the cloud for power users and enterprises:
 - **Commercial Licensing**: For organizations requiring indemnification or proprietary use cases.
 - **Custom Development**: Professional services to build custom "Cognitive Engines" for specific studio requirements.
 - **Priority Support**: SLAs, dedicated support, and training for professional studios and educational institutions.
+
+## Roadmap to 100% Compliance
+
+### Current Implementation Status
+| Component | Estimated Implementation |
+| :--- | :--- |
+| Core Compiler (tenutoc) | [X]% |
+| TEAS (Engraving) | [X]% |
+| Audio/Visual Engine | [X]% |
+| Decompiler & Ecosystem | [X]% |
+
+### Epic 1: The Core Compiler & WASM Integration (The Brain)
+The goal: A mathematically flawless, fully integrated Rust-to-WASM pipeline that parses 100% of the Tenuto 3.0 grammar.
+- **Sprint 1: The WASM Bridge**
+  - Replace `public/pkg/tenutoc.js` mocks with actual `wasm-bindgen` outputs.
+  - Implement zero-copy memory transfers between Rust and the Web Workers for massive MIDI files.
+- **Sprint 2: The Formal Grammar**
+  - Implement a robust parser (e.g., using `logos` and `rowan` in Rust) for the complete Tenuto syntax, including nested tuplets `<[ ]>`, polymeters, and microtonal accidentals.
+  - Build the Semantic Analyzer to catch impossible rhythms and out-of-range pitches at compile time.
+- **Sprint 3: The Language Server Protocol (LSP)**
+  - Expose the Rust compiler as an LSP to Monaco.
+  - Implement real-time error squiggles, hover documentation for chords, and semantic highlighting.
+
+### Epic 2: TEAS (Tenuto Engraving & Articulation System)
+The goal: Output SVG/PDFs that rival traditional hand-engraved sheet music (Henle Verlag quality).
+- **Sprint 4: The Layout Engine (Horizontal)**
+  - Implement the Knuth-Plass line-breaking algorithm to dynamically justify measures across systems.
+  - Implement optical spacing (Gourlay spacing) so 16th notes take up proportionally correct space relative to whole notes.
+- **Sprint 5: The Layout Engine (Vertical & Collision)**
+  - Implement a bounding-box collision detection system to automatically resolve overlapping slurs, ties, and dynamics.
+  - Implement dynamic staff grouping and bracket rendering for orchestral scores.
+- **Sprint 6: Advanced Notation**
+  - Render complex nested tuplets with proper bracket angles.
+  - Support cross-staff beaming and grace notes.
+
+### Epic 3: The Audio/Visual Engine (The Performance)
+The goal: Sample-accurate audio synthesis and 120fps visual feedback.
+- **Sprint 7: The Synthesizer**
+  - Integrate a WebAudio/AudioWorklet SoundFont (SF2/SFZ) player.
+  - Map Tenuto `patch=""` definitions to actual instrument samples.
+  - Implement sample-accurate scheduling using `audioContext.currentTime`.
+- **Sprint 8: Advanced WebGL**
+  - Upgrade the WebGL piano roll with custom shaders (bloom effects for active notes, particle systems for hits).
+  - Implement smooth, continuous scrolling tied to the AudioContext clock.
+
+### Epic 4: The Decompiler & Ecosystem (Addendum D)
+The goal: The ultimate translation layer. Ingest anything, output perfect Tenuto.
+- **Sprint 9: Advanced Decompilation**
+  - Enhance the LZ77 macro extractor to recognize transposed motifs (e.g., extracting a sequence and calling it as `$macro_1 + 4st`).
+  - Implement swing-detection heuristics to snap off-grid MIDI into `swing=66%` metadata rather than complex tuplets.
+- **Sprint 10: Interoperability**
+  - Implement full MusicXML 4.0 export and import.
+  - Implement a package manager for Tenuto (e.g., `import "std/orchestra"`).
 
 *Tenuto: Write music as code. Compile to everything.*
