@@ -1,43 +1,34 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { Play, Square, Code, FileCode, Upload } from 'lucide-react';
 import * as Tone from 'tone';
 import { registerTenutoLanguage } from './editor/tenutoLanguage';
+import { AudioEngine } from './audio/engine';
+
+import { Diagnostic } from './compiler/diagnostics';
 
 const DEFAULT_CODE = `tenuto "3.0" {
   meta @{ title: "The Producer Suite", tempo: 130, time: "4/4" }
   
-  group "Strings" {
-    def vln1 "Violin I" style=standard patch="gm_violin"
-    def vln2 "Violin II" style=standard patch="gm_violin"
-  }
-  
-  def pno "Keys" style=standard patch="gm_epiano"
+  def vln1 "Violin I" style=standard patch=gm_piano
+  def vln2 "Violin II" style=standard patch=gm_piano
+  def sub "Sub Bass" style=synth env=@{ a: 5ms, d: 1s, s: 100%, r: 50ms }
+  def vox "Vocal Chops" style=concrete src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"
   
   measure 1 {
-    vln1: c5:4.slur d5:8 e5:4.tie e5:8 |
-    vln2: e4:4.p g4:8 c5:4.f c5:8 |
-    pno: <[
-      v1: [c4 e4 g4]:2.marc [d4 f4 a4]:4 | 
-      v2: c3:1 | 
-    ]>
-  }
-
-  measure 2 {
-    vln1: <[ c5:8 d5:8 e5:8 ]>:3/2 f5:4 g5:4 |
-    vln2: c4:4.grace d4:4 e4:4 f4:4 |
-    pno: <[
-      v1: c4:8 d4:8.cross(vln2) e4:8.cross(vln2) f4:8 |
-      v2: c3:2 g3:2 |
-    ]>
+    vln1: c5:4.slur "Ah" d:8 e:4.tie e:8 |
+    vln2: e4:4.p "Ooh" g4:8 c5:4.f.push(20) c5:8.pull(10) |
+    sub: c2:2.glide(500ms) g2:2 |
+    vox: c4:4.slice(1) c4:4.slice(2) c4:4.slice(3) c4:4.slice(4) |
   }
 }`;
 
 export default function App() {
   const [code, setCode] = useState(DEFAULT_CODE);
   const [svgScore, setSvgScore] = useState<string | null>(null);
+  const [musicXml, setMusicXml] = useState<string | null>(null);
   const [status, setStatus] = useState('Booting compiler...');
-  const [diagnostics, setDiagnostics] = useState<any[]>([]);
+  const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   
   const workerRef = useRef<Worker | null>(null);
@@ -48,16 +39,67 @@ export default function App() {
   const monacoRef = useRef<any>(null);
   
   // Audio state
-  const synthRef = useRef<Tone.PolySynth | null>(null);
-  const partRef = useRef<Tone.Part | null>(null);
+  const audioEngineRef = useRef<AudioEngine | null>(null);
+  const audioEventsRef = useRef<any[]>([]);
+  const playbackStateRef = useRef<{
+    isPlaying: boolean;
+    startTime: number;
+    nextEventIndex: number;
+    timerId: number | null;
+  }>({
+    isPlaying: false,
+    startTime: 0,
+    nextEventIndex: 0,
+    timerId: null
+  });
 
   useEffect(() => {
-    // Initialize Audio
-    synthRef.current = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: "triangle" },
-      envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 1 }
-    }).toDestination();
+    audioEngineRef.current = new AudioEngine();
+  }, []);
 
+  const scheduleAudio = () => {
+    const state = playbackStateRef.current;
+    if (!state.isPlaying) return;
+
+    const context = Tone.getContext().rawContext as AudioContext;
+    const currentTime = context.currentTime;
+    const lookahead = 0.1; // 100ms lookahead
+
+    // Calculate current playback time relative to start
+    const playbackTime = currentTime - state.startTime;
+
+    // Schedule events that fall within the lookahead window
+    while (
+      state.nextEventIndex < audioEventsRef.current.length &&
+      audioEventsRef.current[state.nextEventIndex].time <= playbackTime + lookahead
+    ) {
+      const event = audioEventsRef.current[state.nextEventIndex];
+      
+      if (audioEngineRef.current) {
+        audioEngineRef.current.schedule(event, state.startTime);
+      }
+      
+      state.nextEventIndex++;
+    }
+
+    // Stop playback if all events are scheduled and played
+    if (state.nextEventIndex >= audioEventsRef.current.length) {
+      // We could stop here, but let's just let it finish playing
+      // We'll stop the timer though
+      if (state.timerId !== null) {
+        window.clearInterval(state.timerId);
+        state.timerId = null;
+      }
+      // We don't set isPlaying to false immediately because notes are still sounding
+      setTimeout(() => {
+        setIsPlaying(false);
+        renderWorkerRef.current?.postMessage({ type: 'STOP_PLAYBACK' });
+      }, 2000); // Wait 2 seconds for tails
+      return;
+    }
+  };
+
+  useEffect(() => {
     // Initialize Compiler Worker
     workerRef.current = new Worker(new URL('./compiler.worker.ts', import.meta.url), { type: 'module' });
     
@@ -72,50 +114,37 @@ export default function App() {
       } else if (type === 'SUCCESS') {
         setStatus(`Compiled successfully in ${payload.durationMs}ms`);
         setSvgScore(payload.svg);
-        setDiagnostics([]);
+        setMusicXml(payload.musicxml);
+        setDiagnostics(payload.diagnostics || []);
         
         // Parse the compiled MIDI bytes and send to WebGL renderer
         if (renderWorkerRef.current && payload.midi) {
           try {
-            import('@tonejs/midi').then(({ Midi }) => {
+            import('@tonejs/midi').then(async ({ Midi }) => {
               const midi = new Midi(payload.midi);
               const notes: any[] = [];
               
               // Clear previous audio part
-              if (partRef.current) {
-                partRef.current.dispose();
-                partRef.current = null;
-              }
+              audioEventsRef.current = [];
               
-              const audioEvents: any[] = [];
+              // Ensure AudioContext is available
+              const context = Tone.getContext().rawContext as AudioContext;
               
-              midi.tracks.forEach(track => {
+              // Load instruments
+              for (let i = 0; i < midi.tracks.length; i++) {
+                const track = midi.tracks[i];
                 track.notes.forEach(note => {
                   notes.push({
                     time: note.time,
                     duration: note.duration,
                     midi: note.midi
                   });
-                  
-                  audioEvents.push({
-                    time: note.time,
-                    note: note.name,
-                    duration: note.duration,
-                    velocity: note.velocity
-                  });
                 });
-              });
+              }
               
-              // Setup new audio part
-              if (audioEvents.length > 0) {
-                partRef.current = new Tone.Part((time, event) => {
-                  synthRef.current?.triggerAttackRelease(
-                    event.note, 
-                    event.duration, 
-                    time, 
-                    event.velocity
-                  );
-                }, audioEvents).start(0);
+              if (payload.audioEvents && audioEngineRef.current) {
+                audioEventsRef.current = payload.audioEvents;
+                await audioEngineRef.current.loadInstruments(payload.audioEvents);
               }
               
               renderWorkerRef.current?.postMessage({ type: 'UPDATE_NOTES', notes });
@@ -130,10 +159,13 @@ export default function App() {
           setDiagnostics(payload.diagnostics);
         } else {
           setDiagnostics([{
-            line: 1,
-            column: 1,
-            message: payload.message || 'Unknown error',
-            severity: 'error'
+            status: 'fatal',
+            code: 'E0000',
+            type: 'Unknown Error',
+            location: { line: 1, column: 1 },
+            diagnostics: {
+              message: payload.message || 'Unknown error'
+            }
           }]);
         }
       } else if (type === 'DECOMPILE_SUCCESS') {
@@ -172,11 +204,8 @@ export default function App() {
       if (canvas && canvasContainerRef.current) {
         canvasContainerRef.current.removeChild(canvas);
       }
-      if (partRef.current) {
-        partRef.current.dispose();
-      }
-      if (synthRef.current) {
-        synthRef.current.dispose();
+      if (audioEngineRef.current) {
+        audioEngineRef.current.stopAll();
       }
     };
   }, []);
@@ -196,14 +225,26 @@ export default function App() {
     if (monacoRef.current && editorRef.current) {
       const model = editorRef.current.getModel();
       if (model) {
-        const markers = diagnostics.map(diag => ({
-          severity: monacoRef.current.MarkerSeverity.Error,
-          startLineNumber: diag.line,
-          startColumn: diag.column,
-          endLineNumber: diag.line,
-          endColumn: diag.column + 5, // Approximate word length for squiggle
-          message: diag.message
-        }));
+        const markers = diagnostics.map(diag => {
+          let severity = monacoRef.current.MarkerSeverity.Error;
+          if (diag.status === 'warning') {
+            severity = monacoRef.current.MarkerSeverity.Warning;
+          }
+          
+          let message = `[${diag.code}] ${diag.type}: ${diag.diagnostics.message}`;
+          if (diag.diagnostics.suggestion) {
+            message += `\nSuggestion: ${diag.diagnostics.suggestion}`;
+          }
+
+          return {
+            severity,
+            startLineNumber: diag.location.line,
+            startColumn: diag.location.column,
+            endLineNumber: diag.location.line,
+            endColumn: diag.location.column + 5, // Approximate word length for squiggle
+            message
+          };
+        });
         monacoRef.current.editor.setModelMarkers(model, 'tenuto', markers);
       }
     }
@@ -216,27 +257,72 @@ export default function App() {
     }
   };
 
+  const syncTimeRef = useRef<number | null>(null);
+
+  const syncTime = () => {
+    if (playbackStateRef.current.isPlaying) {
+      const context = Tone.getContext().rawContext as AudioContext;
+      renderWorkerRef.current?.postMessage({
+        type: 'SYNC_TIME',
+        currentTime: context.currentTime,
+        startTime: playbackStateRef.current.startTime
+      });
+      syncTimeRef.current = requestAnimationFrame(syncTime);
+    }
+  };
+
   const handlePlay = async () => {
     // Tone.js requires a user interaction to start the AudioContext
     if (Tone.context.state !== 'running') {
       await Tone.start();
     }
     
-    Tone.Transport.stop();
-    Tone.Transport.position = 0;
-    Tone.Transport.start();
+    if (audioEngineRef.current) {
+      audioEngineRef.current.stopAll();
+    }
+    
+    const context = Tone.getContext().rawContext as AudioContext;
+    
+    if (playbackStateRef.current.timerId !== null) {
+      window.clearInterval(playbackStateRef.current.timerId);
+    }
+    
+    playbackStateRef.current = {
+      isPlaying: true,
+      startTime: context.currentTime + 0.1, // Start slightly in the future
+      nextEventIndex: 0,
+      timerId: window.setInterval(scheduleAudio, 25) // Run every 25ms
+    };
+    
     setIsPlaying(true);
+    
+    if (syncTimeRef.current !== null) {
+      cancelAnimationFrame(syncTimeRef.current);
+    }
+    syncTimeRef.current = requestAnimationFrame(syncTime);
     
     // Send absolute time to WebGL worker for synchronization
     renderWorkerRef.current?.postMessage({ 
       type: 'START_PLAYBACK', 
-      absoluteStartTime: performance.timeOrigin + performance.now(),
-      latencyMs: Tone.context.lookAhead * 1000
+      startTime: playbackStateRef.current.startTime
     });
   };
 
   const handleStop = () => {
-    Tone.Transport.stop();
+    if (playbackStateRef.current.timerId !== null) {
+      window.clearInterval(playbackStateRef.current.timerId);
+      playbackStateRef.current.timerId = null;
+    }
+    playbackStateRef.current.isPlaying = false;
+    
+    if (syncTimeRef.current !== null) {
+      cancelAnimationFrame(syncTimeRef.current);
+      syncTimeRef.current = null;
+    }
+    
+    if (audioEngineRef.current) {
+      audioEngineRef.current.stopAll();
+    }
     setIsPlaying(false);
     renderWorkerRef.current?.postMessage({ type: 'STOP_PLAYBACK' });
   };
@@ -253,6 +339,19 @@ export default function App() {
       };
       reader.readAsArrayBuffer(file);
     }
+  };
+
+  const handleDownloadMusicXML = () => {
+    if (!musicXml) return;
+    const blob = new Blob([musicXml], { type: 'application/vnd.recordare.musicxml+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'score.musicxml';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -321,13 +420,20 @@ export default function App() {
             
             {/* Diagnostics Panel */}
             {diagnostics.length > 0 && (
-              <div className="absolute bottom-0 left-0 right-0 bg-red-950/90 border-t border-red-900 p-4 max-h-48 overflow-y-auto backdrop-blur-md z-20">
-                <h3 className="text-red-400 font-semibold text-sm mb-2">Compilation Errors</h3>
+              <div className="absolute bottom-0 left-0 right-0 bg-zinc-950/90 border-t border-zinc-800 p-4 max-h-48 overflow-y-auto backdrop-blur-md z-20">
+                <h3 className="text-zinc-400 font-semibold text-sm mb-2">Diagnostics</h3>
                 <ul className="space-y-2">
                   {diagnostics.map((diag, i) => (
-                    <li key={i} className="text-sm text-red-200 font-mono">
-                      <span className="text-red-500 mr-2">[{diag.line}:{diag.column}]</span>
-                      {diag.message}
+                    <li key={i} className={`text-sm font-mono ${diag.status === 'fatal' ? 'text-red-200' : 'text-yellow-200'}`}>
+                      <span className={`${diag.status === 'fatal' ? 'text-red-500' : 'text-yellow-500'} mr-2`}>
+                        [{diag.location.line}:{diag.location.column}] {diag.code} ({diag.type})
+                      </span>
+                      {diag.diagnostics.message}
+                      {diag.diagnostics.suggestion && (
+                        <div className="mt-1 ml-6 text-zinc-400 italic">
+                          Suggestion: {diag.diagnostics.suggestion}
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -340,9 +446,18 @@ export default function App() {
         <div className="w-1/2 flex flex-col bg-zinc-50">
           {/* Top Half: SVG Engraver (Phase 8) */}
           <div className="flex-1 flex flex-col border-b border-zinc-200">
-            <div className="flex items-center gap-2 px-4 py-2 bg-zinc-200 border-b border-zinc-300 text-zinc-700">
-              <FileCode size={16} />
-              <span className="text-sm font-medium">TEAS Engraver (SVG)</span>
+            <div className="flex items-center justify-between px-4 py-2 bg-zinc-200 border-b border-zinc-300 text-zinc-700">
+              <div className="flex items-center gap-2">
+                <FileCode size={16} />
+                <span className="text-sm font-medium">TEAS Engraver (SVG)</span>
+              </div>
+              <button 
+                onClick={handleDownloadMusicXML}
+                disabled={!musicXml}
+                className={`text-xs font-medium px-3 py-1 rounded transition-colors ${musicXml ? 'bg-zinc-300 hover:bg-zinc-400 text-zinc-800' : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'}`}
+              >
+                Download MusicXML
+              </button>
             </div>
             <div className="flex-1 overflow-auto p-8 flex justify-center bg-white shadow-inner">
               {svgScore ? (

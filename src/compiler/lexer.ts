@@ -99,7 +99,7 @@ export class Lexer {
       while (this.pos < this.input.length && /[a-zA-Z0-9_+\-#^.]/.test(this.peek())) {
         value += this.advance();
       }
-      const keywords = ['tenuto', 'meta', 'def', 'measure'];
+      const keywords = ['tenuto', 'meta', 'def', 'measure', 'group', 'import'];
       if (keywords.includes(value)) {
         return { type: TokenType.Keyword, value, line: startLine, column: startCol };
       }

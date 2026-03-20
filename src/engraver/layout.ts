@@ -1,4 +1,4 @@
-import { AST, Measure, Event, Voice, Part } from '../compiler/parser';
+import { AST, Measure, Event, Voice, Part, MacroCall } from '../compiler/parser';
 
 export interface LayoutOptions {
   systemWidth: number;
@@ -45,12 +45,21 @@ export interface ScoreLayout {
 
 export class EngraverLayout {
   private options: LayoutOptions;
+  private macroDurations: Map<string, number> = new Map();
 
   constructor(options: Partial<LayoutOptions> = {}) {
     this.options = { ...DEFAULT_LAYOUT_OPTIONS, ...options };
   }
 
   public layout(ast: AST): ScoreLayout {
+    this.macroDurations.clear();
+    for (const macro of ast.macros) {
+        let duration = 0;
+        for (const event of macro.events) {
+            duration += this.getEventDuration(event);
+        }
+        this.macroDurations.set(macro.id, duration);
+    }
     const measureLayouts = this.calculateMeasureIdealWidths(ast);
     return this.breakIntoSystems(measureLayouts);
   }
@@ -111,19 +120,33 @@ export class EngraverLayout {
 
       const sortedPositions = Array.from(positions).sort((a, b) => a - b);
       
-      // 2. Calculate Gourlay spacing between consecutive positions
+      // 2. Calculate Springs and Rods between consecutive positions
       const positionX = new Map<number, number>();
       let currentX = this.options.measurePadding;
       positionX.set(0, currentX);
 
       for (let i = 0; i < sortedPositions.length - 1; i++) {
         const d = sortedPositions[i + 1] - sortedPositions[i];
-        let space = 0;
+        
+        // Spring: optical space based on rhythmic duration
+        let spring = 0;
         if (d < 0.01) {
-          space = 15; // Fixed space for grace notes
+          spring = 15; // Fixed space for grace notes
         } else {
-          space = this.options.spacingConstant * Math.pow(d, this.options.spacingExponent);
+          spring = this.options.spacingConstant * Math.pow(d, this.options.spacingExponent);
         }
+
+        // Rod: absolute minimum physical width to prevent overlapping ink
+        // A basic approximation: each column needs at least 20px of physical space
+        // In a real engine, this would depend on the actual glyphs in the column (accidentals, ledger lines, etc.)
+        let rod = 20; 
+        if (d < 0.01) {
+          rod = 12; // Grace notes can be tighter
+        }
+
+        // Constraint solver pass: actual distance is spring length, but never less than rod length
+        const space = Math.max(spring, rod);
+        
         currentX += space;
         positionX.set(sortedPositions[i + 1], currentX);
       }
@@ -211,6 +234,9 @@ export class EngraverLayout {
   }
 
   private getEventDuration(event: Event): number {
+    if (event.type === 'macro_call') {
+        return this.macroDurations.get(event.id) || 0;
+    }
     if (event.type === 'note' || event.type === 'chord') {
       return this.parseDuration(event.duration);
     } else if (event.type === 'tuplet') {

@@ -1,48 +1,18 @@
-import { AST, Event, Note, Chord, Tuplet } from '../compiler/parser';
+import { AST, Event, Note, Chord, Tuplet, MacroCall } from '../compiler/parser';
 import { EngraverLayout, ScoreLayout, SystemLayout, MeasureLayout, PositionedEvent } from './layout';
-
-export class BoundingBox {
-  constructor(public x: number, public y: number, public width: number, public height: number) {}
-
-  intersects(other: BoundingBox): boolean {
-    return !(
-      this.x + this.width < other.x ||
-      other.x + other.width < this.x ||
-      this.y + this.height < other.y ||
-      other.y + other.height < this.y
-    );
-  }
-}
-
-export class CollisionSystem {
-  private boxes: BoundingBox[] = [];
-
-  add(box: BoundingBox) {
-    this.boxes.push(box);
-  }
-
-  collides(box: BoundingBox): boolean {
-    return this.boxes.some(b => b.intersects(box));
-  }
-
-  resolveVertical(box: BoundingBox, direction: -1 | 1, step: number = 2): BoundingBox {
-    let currentBox = new BoundingBox(box.x, box.y, box.width, box.height);
-    while (this.collides(currentBox)) {
-      currentBox.y += direction * step;
-    }
-    this.add(currentBox);
-    return currentBox;
-  }
-}
+import { SMUFL_METADATA } from './smufl';
+import { Skyline } from './skyline';
 
 export class SVGEngraver {
   private layoutEngine: EngraverLayout;
+  private ast: AST | null = null;
 
   constructor() {
     this.layoutEngine = new EngraverLayout();
   }
 
   public render(ast: AST): string {
+    this.ast = ast;
     const layout = this.layoutEngine.layout(ast);
     return this.generateSVG(layout, ast);
   }
@@ -112,13 +82,15 @@ export class SVGEngraver {
       }
       
       // Clef (Treble clef placeholder)
-      svg += `<text x="10" y="${staffY + 30}" class="clef">𝄞</text>`;
+      const clefGlyph = SMUFL_METADATA['gClef'];
+      svg += `<path d="${clefGlyph.path}" transform="translate(10, ${staffY + 30}) scale(10)" class="clef-path" fill="#000" />`;
       
       // Barlines at start of system
       svg += `<line x1="0" y1="${staffY}" x2="0" y2="${staffY + 40}" class="barline" />`;
     });
 
-    const collisionSystem = new CollisionSystem();
+    const topSkyline = new Skyline(system.measures.reduce((sum, m) => sum + m.width, 0) + 100, 10, true);
+    const bottomSkyline = new Skyline(system.measures.reduce((sum, m) => sum + m.width, 0) + 100, 10, false);
 
     // Render measures
     let currentX = 0;
@@ -133,7 +105,7 @@ export class SVGEngraver {
         const staffY = partIndex * staffSpacing;
         
         for (const pe of partData.positionedEvents) {
-          svg += this.renderEvent(pe, staffY, collisionSystem, parts, staffSpacing);
+          svg += this.renderEvent(pe, staffY, topSkyline, bottomSkyline, parts, staffSpacing, currentX);
         }
       }
       
@@ -179,13 +151,13 @@ export class SVGEngraver {
     return staffY + 20;
   }
 
-  private renderEvent(pe: PositionedEvent, staffY: number, collisionSystem: CollisionSystem, parts: string[], staffSpacing: number): string {
+  private renderEvent(pe: PositionedEvent, staffY: number, topSkyline: Skyline, bottomSkyline: Skyline, parts: string[], staffSpacing: number, measureX: number): string {
     if (pe.event.type === 'note') {
-      return this.renderNote(pe.event, pe.x, staffY, collisionSystem, parts, staffSpacing);
+      return this.renderNote(pe.event, pe.x, staffY, topSkyline, bottomSkyline, parts, staffSpacing, measureX);
     } else if (pe.event.type === 'chord') {
       let svg = '';
       for (const note of pe.event.notes) {
-        svg += this.renderNote(note, pe.x, staffY, collisionSystem, parts, staffSpacing);
+        svg += this.renderNote(note, pe.x, staffY, topSkyline, bottomSkyline, parts, staffSpacing, measureX);
       }
       return svg;
     } else if (pe.event.type === 'tuplet') {
@@ -197,7 +169,7 @@ export class SVGEngraver {
         let maxY = -Infinity;
 
         for (const ie of pe.internalEvents) {
-          svg += this.renderEvent(ie, staffY, collisionSystem, parts, staffSpacing);
+          svg += this.renderEvent(ie, staffY, topSkyline, bottomSkyline, parts, staffSpacing, measureX);
           minX = Math.min(minX, ie.x);
           maxX = Math.max(maxX, ie.x);
           const y = this.getEventY(ie.event, staffY);
@@ -220,11 +192,39 @@ export class SVGEngraver {
         svg += `<text x="${midX}" y="${midY - 5}" font-family="serif" font-size="12px" text-anchor="middle" font-style="italic">${pe.event.ratio}</text>`;
       }
       return svg;
+    } else if (pe.event.type === 'macro_call') {
+        const macro = this.ast?.macros.find(m => m.id === (pe.event as MacroCall).id);
+        if (!macro) return '';
+        
+        let svg = '';
+        let currentX = pe.x;
+        // Simple rendering for macro events, just spacing them out a bit
+        // A real implementation would need to properly layout the macro events
+        for (const macroEvent of macro.events) {
+            let eventToRender = macroEvent;
+            if (pe.event.transpose) {
+                // We'd need to transpose the event here, but for now we'll just render it as is
+                // since transposing requires a full pitch manipulation utility
+            }
+            
+            // Create a mock positioned event for the macro event
+            const mockPe: PositionedEvent = {
+                event: eventToRender,
+                x: currentX,
+                y: pe.y,
+                duration: 0, // Not used in renderEvent
+                logicalTime: 0
+            };
+            
+            svg += this.renderEvent(mockPe, staffY, topSkyline, bottomSkyline, parts, staffSpacing, measureX);
+            currentX += 30; // Arbitrary spacing for macro events
+        }
+        return svg;
     }
     return '';
   }
 
-  private renderNote(note: Note, x: number, staffY: number, collisionSystem: CollisionSystem, parts: string[], staffSpacing: number): string {
+  private renderNote(note: Note, x: number, staffY: number, topSkyline: Skyline, bottomSkyline: Skyline, parts: string[], staffSpacing: number, measureX: number): string {
     let targetStaffY = staffY;
     if (note.cross) {
       const targetPartIndex = parts.indexOf(note.cross);
@@ -250,19 +250,30 @@ export class SVGEngraver {
     
     const isGrace = note.modifiers?.includes('grace');
     const scale = isGrace ? 0.7 : 1;
-    const rx = 6 * scale;
-    const ry = 4 * scale;
+    
+    // Determine notehead type based on duration
+    const duration = parseFloat(note.duration || '4');
+    let glyphName = 'noteheadBlack';
+    if (duration === 2) glyphName = 'noteheadHalf';
+    if (duration === 1) glyphName = 'noteheadWhole';
+    
+    const glyph = SMUFL_METADATA[glyphName];
+    const glyphScale = 10 * scale; // 1 staff space = 10px
     
     // Notehead
-    svg += `<ellipse cx="${x + 5}" cy="${y}" rx="${rx}" ry="${ry}" transform="rotate(-20 ${x + 5} ${y})" class="notehead" />`;
-    collisionSystem.add(new BoundingBox(x - 1, y - 4, 12 * scale, 8 * scale));
+    const offsetX = x - glyph.opticalCenter * glyphScale;
+    svg += `<path d="${glyph.path}" transform="translate(${offsetX + 5}, ${y}) scale(${glyphScale})" class="notehead" />`;
+    
+    // Update skylines for notehead
+    const absoluteX = measureX + x;
+    topSkyline.insert(absoluteX / 10, 1.2 * scale, y - 5 * scale);
+    bottomSkyline.insert(absoluteX / 10, 1.2 * scale, y + 5 * scale);
     
     if (isGrace && note.modifiers?.includes('slash')) {
       svg += `<line x1="${x - 2}" y1="${y + 5}" x2="${x + 12}" y2="${y - 15}" stroke="#000" stroke-width="1" />`;
     }
 
     // Stem
-    const duration = parseFloat(note.duration || '4');
     let stemUp = y > targetStaffY + 20;
     
     if (note.cross) {
@@ -271,16 +282,23 @@ export class SVGEngraver {
 
     if (duration >= 2 || isGrace) {
       const stemHeight = 30 * scale;
-      const stemX = stemUp ? x + 5 + rx : x + 5 - rx;
       
-      let stemEndY = stemUp ? y - stemHeight : y + stemHeight;
+      // Use SMuFL stem attachment points
+      const stemAnchor = stemUp ? glyph.stemUpSE : glyph.stemDownNW;
+      const stemX = offsetX + 5 + stemAnchor[0] * glyphScale;
+      const stemStartY = y + stemAnchor[1] * glyphScale;
+      
+      let stemEndY = stemUp ? stemStartY - stemHeight : stemStartY + stemHeight;
       
       if (note.cross) {
         stemEndY = staffY + 20;
       }
 
-      svg += `<line x1="${stemX}" y1="${y}" x2="${stemX}" y2="${stemEndY}" class="stem" />`;
-      collisionSystem.add(new BoundingBox(stemX - 1, Math.min(y, stemEndY), 2, Math.abs(y - stemEndY)));
+      svg += `<line x1="${stemX}" y1="${stemStartY}" x2="${stemX}" y2="${stemEndY}" class="stem" />`;
+      
+      // Update skylines for stem
+      topSkyline.insert((measureX + stemX - 1) / 10, 0.2, Math.min(stemStartY, stemEndY));
+      bottomSkyline.insert((measureX + stemX - 1) / 10, 0.2, Math.max(stemStartY, stemEndY));
     }
     
     // Accidental
@@ -292,14 +310,9 @@ export class SVGEngraver {
       else if (note.accidental === '-') accSymbol = '𝄳'; // Quarter flat
       
       if (accSymbol) {
-        // Resolve accidental collision
-        const accBox = new BoundingBox(x - 15, y - 10, 10, 20);
-        let currentAccBox = new BoundingBox(accBox.x, accBox.y, accBox.width, accBox.height);
-        while (collisionSystem.collides(currentAccBox)) {
-          currentAccBox.x -= 5;
-        }
-        collisionSystem.add(currentAccBox);
-        svg += `<text x="${currentAccBox.x}" y="${y + 5}" font-family="serif" font-size="${18 * scale}px">${accSymbol}</text>`;
+        // Resolve accidental collision using skyline
+        const accX = x - 15;
+        svg += `<text x="${accX}" y="${y + 5}" font-family="serif" font-size="${18 * scale}px">${accSymbol}</text>`;
       }
     }
 
@@ -307,17 +320,31 @@ export class SVGEngraver {
     if (note.articulation) {
       if (note.articulation === 'slur' || note.articulation === 'tie') {
         const arcStartX = x + 5;
-        const arcStartY = stemUp ? y + 10 : y - 10;
         const arcEndX = x + 30;
-        const arcEndY = arcStartY;
-        const controlY = stemUp ? arcStartY + 15 : arcStartY - 15;
         
-        const arcBox = new BoundingBox(arcStartX, Math.min(arcStartY, controlY), arcEndX - arcStartX, Math.abs(controlY - arcStartY));
-        const resolvedBox = collisionSystem.resolveVertical(arcBox, stemUp ? 1 : -1, 5);
+        // Use skyline to find the vertical position for the slur
+        const arcWidth = 25;
+        const height = 15;
         
-        const dy = resolvedBox.y - arcBox.y;
+        let arcStartY = 0;
+        let controlY = 0;
+        let arcEndY = 0;
         
-        svg += `<path d="M ${arcStartX} ${arcStartY + dy} Q ${(arcStartX + arcEndX) / 2} ${controlY + dy} ${arcEndX} ${arcEndY + dy}" fill="none" stroke="#000" stroke-width="1.5" />`;
+        if (stemUp) {
+          // Drop onto bottom skyline
+          const resolvedY = bottomSkyline.drop((measureX + arcStartX) / 10, arcWidth / 10, height / 10, y + 10);
+          arcStartY = resolvedY;
+          arcEndY = resolvedY;
+          controlY = resolvedY + height;
+        } else {
+          // Drop onto top skyline
+          const resolvedY = topSkyline.drop((measureX + arcStartX) / 10, arcWidth / 10, height / 10, y - 10);
+          arcStartY = resolvedY;
+          arcEndY = resolvedY;
+          controlY = resolvedY - height;
+        }
+        
+        svg += `<path d="M ${arcStartX} ${arcStartY} Q ${(arcStartX + arcEndX) / 2} ${controlY} ${arcEndX} ${arcEndY}" fill="none" stroke="#000" stroke-width="1.5" />`;
       } else {
         let artSymbol = '';
         if (note.articulation === 'marc') artSymbol = '^';
@@ -329,21 +356,33 @@ export class SVGEngraver {
           artSymbol = note.articulation;
         }
 
-        let artY = stemUp ? y + 15 : y - 15;
         let direction: 1 | -1 = stemUp ? 1 : -1;
+        let artY = stemUp ? y + 15 : y - 15;
         
         if (['p', 'f', 'mf', 'mp', 'ff', 'pp'].includes(note.articulation)) {
           artY = targetStaffY + 60;
           direction = 1;
         }
         
-        const artBox = new BoundingBox(x, artY - 5, 15, 15);
-        const resolvedBox = collisionSystem.resolveVertical(artBox, direction, 5);
-        
         const fontStyle = ['p', 'f', 'mf', 'mp', 'ff', 'pp'].includes(note.articulation) ? 'font-style="italic" font-weight="bold"' : '';
         
-        svg += `<text x="${resolvedBox.x + 5}" y="${resolvedBox.y + 10}" font-family="serif" font-size="14px" text-anchor="middle" ${fontStyle}>${artSymbol}</text>`;
+        let resolvedY = artY;
+        if (direction === 1) {
+          resolvedY = bottomSkyline.drop((measureX + x) / 10, 1.5, 1.5, artY);
+        } else {
+          resolvedY = topSkyline.drop((measureX + x) / 10, 1.5, 1.5, artY);
+        }
+        
+        svg += `<text x="${x + 5}" y="${resolvedY + (direction === 1 ? 10 : 0)}" font-family="serif" font-size="14px" text-anchor="middle" ${fontStyle}>${artSymbol}</text>`;
       }
+    }
+    
+    // Lyrics
+    if (note.lyric) {
+      const lyricY = targetStaffY + 80; // Place lyrics below the staff
+      const resolvedY = bottomSkyline.drop((measureX + x - 10) / 10, 4, 1.5, lyricY);
+      
+      svg += `<text x="${x + 5}" y="${resolvedY + 10}" font-family="sans-serif" font-size="12px" text-anchor="middle">${note.lyric}</text>`;
     }
     
     return svg;

@@ -1,19 +1,41 @@
-import { AST, Event, Note, Chord, Tuplet } from './parser';
+import { AST, Event, Note, Chord, Tuplet, MacroCall } from './parser';
+import { Diagnostic, CompilerError } from './diagnostics';
 
-export class SemanticError extends Error {
-  constructor(public message: string, public line: number, public column: number) {
-    super(`[${line}:${column}] ${message}`);
+export class SemanticError extends CompilerError {
+  constructor(message: string, line: number, column: number, suggestion?: string) {
+    super({
+      status: 'fatal',
+      code: 'E2000',
+      type: 'Semantic Error',
+      location: { line, column },
+      diagnostics: {
+        message,
+        suggestion
+      }
+    });
     this.name = 'SemanticError';
   }
 }
 
 export class SemanticAnalyzer {
   private errors: SemanticError[] = [];
+  private macroDurations: Map<string, number> = new Map();
 
   constructor(private ast: AST) {}
 
   public analyze(): SemanticError[] {
     this.errors = [];
+    this.macroDurations.clear();
+    
+    // Pre-calculate macro durations
+    for (const macro of this.ast.macros) {
+        let duration = 0;
+        for (const event of macro.events) {
+            duration += this.getEventDuration(event);
+            this.checkPitches(event);
+        }
+        this.macroDurations.set(macro.id, duration);
+    }
     
     // Check time signature
     let timeSig = this.ast.meta['time'] as string || '4/4';
@@ -61,6 +83,13 @@ export class SemanticAnalyzer {
   }
 
   private getEventDuration(event: Event): number {
+    if (event.type === 'macro_call') {
+        if (!this.macroDurations.has(event.id)) {
+            this.errors.push(new SemanticError(`Undefined macro: ${event.id}`, event.line, event.column));
+            return 0;
+        }
+        return this.macroDurations.get(event.id)!;
+    }
     if (event.modifiers && event.modifiers.includes('grace')) {
       return 0;
     }
@@ -115,6 +144,9 @@ export class SemanticAnalyzer {
   }
 
   private checkPitches(event: Event) {
+    if (event.type === 'macro_call') {
+        return; // Pitches already checked during macro definition
+    }
     if (event.type === 'note') {
       this.checkNotePitch(event);
     } else if (event.type === 'chord') {

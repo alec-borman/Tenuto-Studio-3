@@ -9,6 +9,22 @@ struct Note {
     velocity: u8,
 }
 
+fn unswing_tick(tick: u32, tpb: u32, is_16th: bool) -> u32 {
+    let period = if is_16th { tpb / 2 } else { tpb };
+    let b = tick / period;
+    let r = tick % period;
+    let swing_point = period * 2 / 3;
+    let mid_point = period / 2;
+    
+    let new_r = if r <= swing_point {
+        (r as f64 * (mid_point as f64 / swing_point as f64)).round() as u32
+    } else {
+        let fraction = (r - swing_point) as f64 / (period - swing_point) as f64;
+        mid_point + (fraction * (period - mid_point) as f64).round() as u32
+    };
+    b * period + new_r
+}
+
 pub fn decompile_midi(midi_bytes: &[u8]) -> Result<String, String> {
     let smf = Smf::parse(midi_bytes).map_err(|e| format!("Failed to parse MIDI: {}", e))?;
     
@@ -34,12 +50,13 @@ pub fn decompile_midi(midi_bytes: &[u8]) -> Result<String, String> {
         }
     }
 
-    let mut tenuto_code = String::new();
-    tenuto_code.push_str("tenuto \"3.0\" {\n");
-    tenuto_code.push_str(&format!("  meta @{{ title: \"Decompiled Score\", tempo: {}, time: \"{}\" }}\n\n", tempo, time_sig));
-
     let mut track_defs = Vec::new();
     let mut track_events = Vec::new();
+
+    let mut swung_8ths = 0;
+    let mut straight_8ths = 0;
+    let mut swung_16ths = 0;
+    let mut straight_16ths = 0;
 
     for (i, track) in smf.tracks.iter().enumerate() {
         let track_id = format!("trk_{}", i);
@@ -91,10 +108,52 @@ pub fn decompile_midi(midi_bytes: &[u8]) -> Result<String, String> {
 
         if !notes.is_empty() {
             notes.sort_by_key(|n| n.start_tick);
+            
+            for note in &notes {
+                let r_beat = note.start_tick % ticks_per_beat;
+                let diff_straight_8th = (r_beat as i32 - (ticks_per_beat / 2) as i32).abs();
+                let diff_swung_8th = (r_beat as i32 - (ticks_per_beat * 2 / 3) as i32).abs();
+                
+                if diff_swung_8th < diff_straight_8th && diff_swung_8th < (ticks_per_beat / 12) as i32 {
+                    swung_8ths += 1;
+                } else if diff_straight_8th <= diff_swung_8th && diff_straight_8th < (ticks_per_beat / 12) as i32 {
+                    straight_8ths += 1;
+                }
+                
+                let r_half_beat = note.start_tick % (ticks_per_beat / 2);
+                let diff_straight_16th = (r_half_beat as i32 - (ticks_per_beat / 4) as i32).abs();
+                let diff_swung_16th = (r_half_beat as i32 - (ticks_per_beat / 3) as i32).abs();
+                
+                if diff_swung_16th < diff_straight_16th && diff_swung_16th < (ticks_per_beat / 24) as i32 {
+                    swung_16ths += 1;
+                } else if diff_straight_16th <= diff_swung_16th && diff_straight_16th < (ticks_per_beat / 24) as i32 {
+                    straight_16ths += 1;
+                }
+            }
+            
             let style = if is_drum { "grid" } else { "standard" };
             track_defs.push(format!("  def {} \"Track {}\" style={}\n", track_id, i, style));
             track_events.push((track_id, notes));
         }
+    }
+
+    let mut has_8th_swing = false;
+    let mut has_16th_swing = false;
+    
+    if swung_8ths > straight_8ths * 2 && swung_8ths > 3 {
+        has_8th_swing = true;
+    } else if swung_16ths > straight_16ths * 2 && swung_16ths > 3 {
+        has_16th_swing = true;
+    }
+
+    let has_swing = has_8th_swing || has_16th_swing;
+
+    let mut tenuto_code = String::new();
+    tenuto_code.push_str("tenuto \"3.0\" {\n");
+    if has_swing {
+        tenuto_code.push_str(&format!("  meta @{{ title: \"Decompiled Score\", tempo: {}, time: \"{}\", swing: \"66%\" }}\n\n", tempo, time_sig));
+    } else {
+        tenuto_code.push_str(&format!("  meta @{{ title: \"Decompiled Score\", tempo: {}, time: \"{}\" }}\n\n", tempo, time_sig));
     }
 
     for def in track_defs {
@@ -105,7 +164,17 @@ pub fn decompile_midi(midi_bytes: &[u8]) -> Result<String, String> {
     let mut all_macros = Vec::new();
     let mut track_strings = Vec::new();
 
-    for (track_id, notes) in track_events {
+    for (track_id, mut notes) in track_events {
+        if has_swing {
+            for note in &mut notes {
+                let start = note.start_tick;
+                let end = note.start_tick + note.duration;
+                note.start_tick = unswing_tick(start, ticks_per_beat, has_16th_swing);
+                let new_end = unswing_tick(end, ticks_per_beat, has_16th_swing);
+                note.duration = new_end.saturating_sub(note.start_tick);
+            }
+        }
+        
         // 1. Quantize and format into tokens
         let tokens = notes_to_tokens(&notes, ticks_per_beat);
         
@@ -146,6 +215,72 @@ fn midi_to_pitch(midi: u8) -> String {
         _ => "c",
     };
     format!("{}{}", step, octave)
+}
+
+fn pitch_to_midi(pitch: &str) -> Option<i32> {
+    if pitch.starts_with('r') { return None; }
+    let mut chars = pitch.chars();
+    let mut step = chars.next()?.to_string();
+    let mut next_char = chars.next()?;
+    if next_char == '#' {
+        step.push('#');
+        next_char = chars.next()?;
+    }
+    let octave_str = format!("{}{}", next_char, chars.as_str());
+    let octave: i32 = octave_str.parse().ok()?;
+    
+    let pc = match step.as_str() {
+        "c" => 0, "c#" => 1, "d" => 2, "d#" => 3, "e" => 4, "f" => 5,
+        "f#" => 6, "g" => 7, "g#" => 8, "a" => 9, "a#" => 10, "b" => 11,
+        _ => return None,
+    };
+    Some((octave + 1) * 12 + pc)
+}
+
+fn split_token(token: &str) -> (Option<String>, String) {
+    if token.starts_with("r:") || token == "r" || token.starts_with("$macro") {
+        return (None, token.to_string());
+    }
+    let idx = token.find(|c| c == ':' || c == '(').unwrap_or(token.len());
+    let pitch_str = &token[..idx];
+    let rest = &token[idx..];
+    (Some(pitch_str.to_string()), rest.to_string())
+}
+
+fn transpose_token(token: &str, semitones: i32) -> String {
+    let (pitch_opt, rest) = split_token(token);
+    if let Some(pitch_str) = pitch_opt {
+        if let Some(midi) = pitch_to_midi(&pitch_str) {
+            let new_midi = (midi + semitones).clamp(0, 127);
+            let new_pitch = midi_to_pitch(new_midi as u8);
+            return format!("{}{}", new_pitch, rest);
+        }
+    }
+    token.to_string()
+}
+
+fn normalize_sequence(seq: &[String]) -> (Vec<String>, i32) {
+    let mut first_midi = None;
+    for token in seq {
+        let (pitch_opt, _) = split_token(token);
+        if let Some(pitch_str) = pitch_opt {
+            if let Some(midi) = pitch_to_midi(&pitch_str) {
+                first_midi = Some(midi);
+                break;
+            }
+        }
+    }
+    
+    if let Some(first_midi) = first_midi {
+        let shift = 60 - first_midi;
+        let mut normalized = Vec::new();
+        for token in seq {
+            normalized.push(transpose_token(token, shift));
+        }
+        (normalized, -shift)
+    } else {
+        (seq.to_vec(), 0)
+    }
 }
 
 fn notes_to_tokens(notes: &[Note], tpb: u32) -> Vec<String> {
@@ -249,20 +384,25 @@ fn extract_lz77_macros(mut tokens: Vec<String>, all_macros: &mut Vec<Vec<String>
             let mut max_count = 1;
             
             let mut counts: HashMap<Vec<String>, usize> = HashMap::new();
+            let mut first_offsets: HashMap<Vec<String>, i32> = HashMap::new();
             if tokens.len() < len { break; }
             
             let mut i = 0;
             while i <= tokens.len() - len {
                 let seq = tokens[i..i+len].to_vec();
-                *counts.entry(seq).or_insert(0) += 1;
+                let (norm_seq, offset) = normalize_sequence(&seq);
+                *counts.entry(norm_seq.clone()).or_insert(0) += 1;
+                first_offsets.entry(norm_seq).or_insert(offset);
                 i += 1;
             }
             
-            for (seq, _) in counts {
+            for (norm_seq, _) in counts {
                 let mut non_overlapping_count = 0;
                 let mut j = 0;
                 while j <= tokens.len() - len {
-                    if tokens[j..j+len] == seq[..] {
+                    let seq = tokens[j..j+len].to_vec();
+                    let (seq_norm, _) = normalize_sequence(&seq);
+                    if seq_norm == norm_seq {
                         non_overlapping_count += 1;
                         j += len;
                     } else {
@@ -272,26 +412,51 @@ fn extract_lz77_macros(mut tokens: Vec<String>, all_macros: &mut Vec<Vec<String>
                 
                 if non_overlapping_count > max_count {
                     max_count = non_overlapping_count;
-                    best_seq = Some(seq);
+                    best_seq = Some(norm_seq);
                 }
             }
             
-            if let Some(seq) = best_seq {
+            if let Some(norm_seq) = best_seq {
                 if max_count >= 2 {
                     let macro_idx = all_macros.len();
-                    all_macros.push(seq.clone());
+                    
+                    let mut first_actual_seq = None;
+                    let mut first_offset = 0;
+                    for i in 0..=tokens.len() - len {
+                        let seq = tokens[i..i+len].to_vec();
+                        let (seq_norm, offset) = normalize_sequence(&seq);
+                        if seq_norm == norm_seq {
+                            first_actual_seq = Some(seq);
+                            first_offset = offset;
+                            break;
+                        }
+                    }
+                    
+                    let actual_seq = first_actual_seq.unwrap();
+                    all_macros.push(actual_seq);
                     
                     let macro_name = format!("$macro_{}", macro_idx);
                     let mut new_tokens = Vec::new();
                     let mut i = 0;
                     while i < tokens.len() {
-                        if i + len <= tokens.len() && tokens[i..i+len] == seq[..] {
-                            new_tokens.push(macro_name.clone());
-                            i += len;
-                        } else {
-                            new_tokens.push(tokens[i].clone());
-                            i += 1;
+                        if i + len <= tokens.len() {
+                            let seq = tokens[i..i+len].to_vec();
+                            let (seq_norm, offset) = normalize_sequence(&seq);
+                            if seq_norm == norm_seq {
+                                let rel_trans = offset - first_offset;
+                                if rel_trans == 0 {
+                                    new_tokens.push(macro_name.clone());
+                                } else if rel_trans > 0 {
+                                    new_tokens.push(format!("{} + {}st", macro_name, rel_trans));
+                                } else {
+                                    new_tokens.push(format!("{} - {}st", macro_name, -rel_trans));
+                                }
+                                i += len;
+                                continue;
+                            }
                         }
+                        new_tokens.push(tokens[i].clone());
+                        i += 1;
                     }
                     tokens = new_tokens;
                     macro_count += 1;
