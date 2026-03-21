@@ -1,25 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
-import { Play, Square, Code, FileCode, Upload } from 'lucide-react';
+import { Play, Square, Code, FileCode, Upload, Link as LinkIcon, Cpu, Globe } from 'lucide-react';
 import * as Tone from 'tone';
 import { registerTenutoLanguage } from './editor/tenutoLanguage';
 import { AudioEngine } from './audio/engine';
+import { useTenutoDaemon } from './hooks/useTenutoDaemon';
 
 import { Diagnostic } from './compiler/diagnostics';
 
 const DEFAULT_CODE = `tenuto "3.0" {
-  meta @{ title: "The Producer Suite", tempo: 130, time: "4/4" }
+  meta @{ title: "Bus Routing Demo", tempo: 120, time: "4/4" }
   
-  def vln1 "Violin I" style=standard patch=gm_piano
-  def vln2 "Violin II" style=standard patch=gm_piano
-  def sub "Sub Bass" style=synth env=@{ a: 5ms, d: 1s, s: 100%, r: 50ms }
-  def vox "Vocal Chops" style=concrete src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"
+  def synth1 "Lead Synth" style=synth env=@{ a: 10ms, d: 200ms, s: 50%, r: 500ms }
+  def fxTrack "FX Return" style=concrete src="bus://synth1" env=@{ a: 10ms, d: 1s, s: 100%, r: 1s }
   
   measure 1 {
-    vln1: c5:4.slur "Ah" d:8 e:4.tie e:8 |
-    vln2: e4:4.p "Ooh" g4:8 c5:4.f.push(20) c5:8.pull(10) |
-    sub: c2:2.glide(500ms) g2:2 |
-    vox: c4:4.slice(1) c4:4.slice(2) c4:4.slice(3) c4:4.slice(4) |
+    |:
+    synth1: c5:8 d5:8 e5:8 f5:8 g5:8 f5:8 e5:8 d5:8 |
+    fxTrack: c4:1.slice(2).reverse |
   }
 }`;
 
@@ -30,6 +28,11 @@ export default function App() {
   const [status, setStatus] = useState('Booting compiler...');
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
+  
+  // Sprint 5 State
+  const [isLinkEnabled, setIsLinkEnabled] = useState(false);
+  const [executionMode, setExecutionMode] = useState<'local' | 'remote'>('local');
+  const { status: daemonStatus, linkState, sendMessage, addMessageListener } = useTenutoDaemon();
   
   const workerRef = useRef<Worker | null>(null);
   const renderWorkerRef = useRef<Worker | null>(null);
@@ -75,8 +78,10 @@ export default function App() {
     ) {
       const event = audioEventsRef.current[state.nextEventIndex];
       
-      if (audioEngineRef.current) {
-        audioEngineRef.current.schedule(event, state.startTime);
+      // Sprint 5: Execution Hand-off
+      if (executionMode === 'local' && audioEngineRef.current) {
+        // We now use play() instead of schedule(), so this loop is just for updating the playhead
+        // audioEngineRef.current.schedule(event, state.startTime);
       }
       
       state.nextEventIndex++;
@@ -210,10 +215,21 @@ export default function App() {
     };
   }, []);
 
-  const compileCode = (source: string) => {
+  const compileCode = (source: string, tempoOverride?: number) => {
     setStatus('Compiling...');
-    workerRef.current?.postMessage({ type: 'CODE_CHANGED', code: source });
+    workerRef.current?.postMessage({ 
+      type: 'CODE_CHANGED', 
+      code: source,
+      tempoOverride: tempoOverride
+    });
   };
+
+  // Sprint 5: Re-compile when Link tempo changes
+  useEffect(() => {
+    if (isLinkEnabled && linkState?.tempo) {
+      compileCode(code, linkState.tempo);
+    }
+  }, [isLinkEnabled, linkState?.tempo]);
 
   const handleEditorDidMount = (editor: any, monaco: any) => {
     editorRef.current = editor;
@@ -253,7 +269,7 @@ export default function App() {
   const handleEditorChange = (value: string | undefined) => {
     if (value) {
       setCode(value);
-      compileCode(value);
+      compileCode(value, isLinkEnabled ? linkState?.tempo : undefined);
     }
   };
 
@@ -281,31 +297,58 @@ export default function App() {
       audioEngineRef.current.stopAll();
     }
     
-    const context = Tone.getContext().rawContext as AudioContext;
-    
-    if (playbackStateRef.current.timerId !== null) {
-      window.clearInterval(playbackStateRef.current.timerId);
-    }
-    
-    playbackStateRef.current = {
-      isPlaying: true,
-      startTime: context.currentTime + 0.1, // Start slightly in the future
-      nextEventIndex: 0,
-      timerId: window.setInterval(scheduleAudio, 25) // Run every 25ms
+    const startPlayback = (startTime: number) => {
+      if (playbackStateRef.current.timerId !== null) {
+        window.clearInterval(playbackStateRef.current.timerId);
+      }
+      
+      playbackStateRef.current = {
+        isPlaying: true,
+        startTime: startTime,
+        nextEventIndex: 0,
+        timerId: window.setInterval(scheduleAudio, 25) // Run every 25ms
+      };
+      
+      setIsPlaying(true);
+      
+      if (syncTimeRef.current !== null) {
+        cancelAnimationFrame(syncTimeRef.current);
+      }
+      syncTimeRef.current = requestAnimationFrame(syncTime);
+      
+      // Send absolute time to WebGL worker for synchronization
+      renderWorkerRef.current?.postMessage({ 
+        type: 'START_PLAYBACK', 
+        startTime: playbackStateRef.current.startTime
+      });
+
+      // Sprint 5: Execution Hand-off (Remote OSC)
+      if (executionMode === 'remote') {
+        sendMessage({
+          type: 'DELEGATE_TIMELINE',
+          events: audioEventsRef.current,
+          startTime: startTime
+        });
+      } else if (audioEngineRef.current) {
+        audioEngineRef.current.play(audioEventsRef.current, startTime);
+      }
     };
-    
-    setIsPlaying(true);
-    
-    if (syncTimeRef.current !== null) {
-      cancelAnimationFrame(syncTimeRef.current);
+
+    const context = Tone.getContext().rawContext as AudioContext;
+    const immediateStartTime = context.currentTime + 0.1;
+
+    if (isLinkEnabled && daemonStatus === 'CONNECTED') {
+      setStatus('Waiting for Link Downbeat...');
+      const removeListener = addMessageListener((msg) => {
+        if (msg.type === 'DOWNBEAT_SYNC') {
+          removeListener();
+          setStatus('Link Synced');
+          startPlayback(context.currentTime + 0.05); // Start on next tick
+        }
+      });
+    } else {
+      startPlayback(immediateStartTime);
     }
-    syncTimeRef.current = requestAnimationFrame(syncTime);
-    
-    // Send absolute time to WebGL worker for synchronization
-    renderWorkerRef.current?.postMessage({ 
-      type: 'START_PLAYBACK', 
-      startTime: playbackStateRef.current.startTime
-    });
   };
 
   const handleStop = () => {
@@ -365,11 +408,50 @@ export default function App() {
         </div>
         
         <div className="flex items-center gap-4">
+          {/* Sprint 5: IPC Status & Toggles */}
+          <div className="flex items-center gap-2 bg-zinc-800/50 px-3 py-1 rounded-lg border border-zinc-700">
+            <div className="flex items-center gap-1.5 mr-2">
+              <div className={`w-2 h-2 rounded-full ${daemonStatus === 'CONNECTED' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : daemonStatus === 'CONNECTING' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'}`}></div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Daemon</span>
+            </div>
+
+            <button
+              onClick={() => setIsLinkEnabled(!isLinkEnabled)}
+              disabled={daemonStatus !== 'CONNECTED'}
+              className={`p-1.5 rounded transition-all ${isLinkEnabled ? 'bg-indigo-600 text-white' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700'} disabled:opacity-30 disabled:cursor-not-allowed`}
+              title="Ableton Link Sync"
+            >
+              <LinkIcon size={14} />
+            </button>
+
+            <div className="w-px h-4 bg-zinc-700 mx-1"></div>
+
+            <button
+              onClick={() => setExecutionMode(executionMode === 'local' ? 'remote' : 'local')}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-all ${executionMode === 'remote' ? 'bg-amber-600 text-white' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700'}`}
+              title="Execution Mode"
+            >
+              {executionMode === 'remote' ? <Globe size={12} /> : <Cpu size={12} />}
+              {executionMode === 'remote' ? 'Remote OSC' : 'Local WebAudio'}
+            </button>
+          </div>
+
           <div className="text-sm text-zinc-400 flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${status.includes('Error') || status.includes('failed') ? 'bg-red-500' : status.includes('Compiling') ? 'bg-yellow-500' : 'bg-emerald-500'}`}></div>
             {status}
           </div>
           
+          <div className="h-6 w-px bg-zinc-800 mx-2"></div>
+          
+          {/* Sprint 5: Tempo Display */}
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800/50 rounded-md border border-zinc-700">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Tempo</span>
+            <span className={`text-sm font-mono font-bold ${isLinkEnabled ? 'text-indigo-400' : 'text-zinc-200'}`}>
+              {isLinkEnabled ? (linkState?.tempo?.toFixed(1) || '---') : '130.0'}
+            </span>
+            <span className="text-[10px] font-bold text-zinc-600">BPM</span>
+          </div>
+
           <div className="h-6 w-px bg-zinc-800 mx-2"></div>
           
           <button 

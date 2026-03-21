@@ -165,6 +165,35 @@ export class EngraverLayout {
         }
       }
 
+      // 4. Resolve polyphonic collisions (Tuck & Shift)
+      if (eventMap.length > 1) {
+        for (const pos of sortedPositions) {
+          const eventsAtPos = eventMap.map(v => v.positionedEvents.find(pe => pe.logicalTime === pos)).filter(pe => pe !== undefined) as PositionedEvent[];
+          
+          if (eventsAtPos.length > 1) {
+            // Simple collision detection for 2 voices
+            const e1 = eventsAtPos[0].event;
+            const e2 = eventsAtPos[1].event;
+            
+            if (e1.type === 'note' && e2.type === 'note' && e1.pitch !== 'r' && e2.pitch !== 'r') {
+              const pitchMap: Record<string, number> = { 'c': 0, 'd': 1, 'e': 2, 'f': 3, 'g': 4, 'a': 5, 'b': 6 };
+              const step1 = e1.octave * 7 + pitchMap[e1.pitch.toLowerCase()];
+              const step2 = e2.octave * 7 + pitchMap[e2.pitch.toLowerCase()];
+              
+              const diff = Math.abs(step1 - step2);
+              if (diff <= 1) { // Unison or 2nd
+                // Displace the lower voice
+                if (step1 < step2) {
+                  eventsAtPos[0].x += 12; // Shift right
+                } else {
+                  eventsAtPos[1].x += 12; // Shift right
+                }
+              }
+            }
+          }
+        }
+      }
+
       return {
         measure,
         x: 0,
@@ -176,37 +205,82 @@ export class EngraverLayout {
   }
 
   private breakIntoSystems(measures: MeasureLayout[]): ScoreLayout {
-    const systems: SystemLayout[] = [];
-    let currentSystemMeasures: MeasureLayout[] = [];
-    let currentSystemWidth = 0;
-    let currentY = 50;
-    const systemHeight = 150; // Fixed for now, should depend on parts
+    const n = measures.length;
+    if (n === 0) return { systems: [], width: this.options.systemWidth, height: 0 };
 
-    for (const measure of measures) {
-      if (currentSystemMeasures.length > 0 && currentSystemWidth + measure.idealWidth > this.options.systemWidth) {
-        // Justify current system
-        this.justifySystem(currentSystemMeasures, currentSystemWidth);
-        systems.push({ y: currentY, height: systemHeight, measures: currentSystemMeasures });
+    const dp = new Array(n + 1).fill(Infinity);
+    const parent = new Array(n + 1).fill(-1);
+    dp[0] = 0;
+
+    for (let i = 0; i < n; i++) {
+      if (dp[i] === Infinity) continue;
+      
+      let currentWidth = 0;
+      for (let j = i + 1; j <= n; j++) {
+        currentWidth += measures[j - 1].idealWidth;
+        const R = this.options.systemWidth / currentWidth;
         
-        currentY += systemHeight + 50;
-        currentSystemMeasures = [measure];
-        currentSystemWidth = measure.idealWidth;
-      } else {
-        currentSystemMeasures.push(measure);
-        currentSystemWidth += measure.idealWidth;
+        let cost = 0;
+        const isLastLine = (j === n);
+        
+        if (R < 0.5) {
+          if (j > i + 1) break; // Too compressed, adding more measures will only make it worse
+          cost = 10000; // Force at least one measure per line if it's extremely wide
+        } else if (R > 3.0 && !isLastLine) {
+          cost = 10000; // Too stretched
+        } else {
+          if (isLastLine && R > 1.0) {
+            cost = (R - 1) * (R - 1) * 10; // Last line can be shorter
+          } else {
+            cost = (R - 1) * (R - 1) * 100;
+          }
+        }
+        
+        // Widow/orphan penalty
+        if (isLastLine && j - i === 1 && i > 0) {
+          cost += 500;
+        }
+        
+        if (dp[i] + cost < dp[j]) {
+          dp[j] = dp[i] + cost;
+          parent[j] = i;
+        }
       }
     }
 
-    if (currentSystemMeasures.length > 0) {
-      // Don't fully justify the last system if it's too short, but we'll do it simply for now
-      this.justifySystem(currentSystemMeasures, currentSystemWidth, true);
-      systems.push({ y: currentY, height: systemHeight, measures: currentSystemMeasures });
+    // Backtrack to find the optimal breaks
+    const breaks: number[] = [];
+    let curr = n;
+    while (curr > 0) {
+      breaks.push(curr);
+      curr = parent[curr];
+    }
+    breaks.push(0);
+    breaks.reverse();
+
+    const systems: SystemLayout[] = [];
+    let currentY = 50;
+    const systemHeight = 150;
+
+    for (let k = 0; k < breaks.length - 1; k++) {
+      const start = breaks[k];
+      const end = breaks[k + 1];
+      const systemMeasures = measures.slice(start, end);
+      
+      let totalIdealWidth = 0;
+      for (const m of systemMeasures) totalIdealWidth += m.idealWidth;
+      
+      const isLast = (end === n);
+      this.justifySystem(systemMeasures, totalIdealWidth, isLast);
+      
+      systems.push({ y: currentY, height: systemHeight, measures: systemMeasures });
+      currentY += systemHeight + 50;
     }
 
     return {
       systems,
       width: this.options.systemWidth,
-      height: currentY + systemHeight + 50
+      height: currentY
     };
   }
 

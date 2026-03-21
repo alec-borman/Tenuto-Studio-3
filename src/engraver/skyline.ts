@@ -76,4 +76,12 @@ export class Skyline {
       }
     }
   }
+
+  /**
+   * Peeks at the skyline value at a given X coordinate without modifying it.
+   */
+  public peek(x: number): number {
+    const idx = Math.max(0, Math.min(this.array.length - 1, Math.floor(x * this.scale)));
+    return this.array[idx];
+  }
 }

@@ -102,7 +102,7 @@ export class SemanticAnalyzer {
       for (const e of event.events) {
         total += this.getEventDuration(e);
       }
-      const ratioParts = event.ratio.split('/');
+      const ratioParts = event.ratio.split(':');
       if (ratioParts.length === 2) {
         const num = parseInt(ratioParts[0], 10);
         const den = parseInt(ratioParts[1], 10);

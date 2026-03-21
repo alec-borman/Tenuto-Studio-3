@@ -69,7 +69,24 @@ export class Lexer {
     const char = this.peek();
 
     // Symbols
-    if (/[{}@=:<\[\]|,]/.test(char)) {
+    if (/[{}@=:<\[\]|,\(\)*]/.test(char)) {
+      if (char === '|') {
+        if (this.peek() === ':') {
+          this.advance();
+          return { type: TokenType.Symbol, value: '|:', line: startLine, column: startCol };
+        }
+      } else if (char === ':') {
+        if (this.peek() === '|') {
+          this.advance();
+          return { type: TokenType.Symbol, value: ':|', line: startLine, column: startCol };
+        }
+      } else if (char === '[') {
+        if (/[12]/.test(this.peek()) && this.input[this.pos + 1] === '.') {
+          const num = this.advance();
+          this.advance(); // '.'
+          return { type: TokenType.Symbol, value: `[${num}.`, line: startLine, column: startCol };
+        }
+      }
       return { type: TokenType.Symbol, value: this.advance(), line: startLine, column: startCol };
     }
 
@@ -84,10 +101,21 @@ export class Lexer {
       return { type: TokenType.String, value, line: startLine, column: startCol };
     }
 
-    // Numbers (including fractions like 4/4, and durations like 4. or 4.marc)
+    // Numbers (including fractions like 4/4, and durations like 4. or 4.marc, and units like ms or ticks)
     if (/[0-9]/.test(char)) {
       let value = '';
       while (this.pos < this.input.length && /[0-9./]/.test(this.peek())) {
+        value += this.advance();
+      }
+      // Absorb units like 'ms', 's', 'ticks', '%'
+      if (this.peek() === 'm' && this.input[this.pos + 1] === 's') {
+        value += this.advance();
+        value += this.advance();
+      } else if (this.peek() === 's') {
+        value += this.advance();
+      } else if (this.peek() === 't' && this.input.slice(this.pos, this.pos + 5) === 'ticks') {
+        for (let i = 0; i < 5; i++) value += this.advance();
+      } else if (this.peek() === '%') {
         value += this.advance();
       }
       return { type: TokenType.Number, value, line: startLine, column: startCol };

@@ -8,6 +8,7 @@ import { MusicXMLExporter } from './compiler/musicxml';
 import { MIDIGenerator } from './compiler/midi';
 import { CompilerError } from './compiler/diagnostics';
 import { AudioEventGenerator } from './compiler/audio';
+import { GraphUnroller } from './compiler/unroller';
 
 let isWasmLoaded = false;
 let wasmMemory: any = null;
@@ -58,7 +59,7 @@ self.onmessage = async (e) => {
         return;
     }
 
-    const { type, code, midi_bytes } = e.data;
+    const { type, code, midi_bytes, tempoOverride } = e.data;
 
     if (type === 'CODE_CHANGED') {
         if (!code || code.trim() === '') {
@@ -73,6 +74,11 @@ self.onmessage = async (e) => {
             const parser = new Parser(code);
             let ast = parser.parse();
             
+            // Apply tempo override if provided (Sprint 5: Ableton Link)
+            if (tempoOverride) {
+                ast.meta.tempo = tempoOverride;
+            }
+            
             // Resolve imports
             if (ast.imports && ast.imports.length > 0) {
                 for (const importPath of ast.imports) {
@@ -86,8 +92,11 @@ self.onmessage = async (e) => {
                 }
             }
 
-            
-            const analyzer = new SemanticAnalyzer(ast);
+            // Sprint 6: Graph Unrolling
+            const unroller = new GraphUnroller(ast);
+            const unrolledAst = unroller.unroll();
+
+            const analyzer = new SemanticAnalyzer(unrolledAst);
             const semanticErrors = analyzer.analyze();
             
             if (semanticErrors.length > 0) {
@@ -109,18 +118,18 @@ self.onmessage = async (e) => {
 
             // 2. If valid, run the TS compiler to generate MIDI and SVG
             const midiGen = new MIDIGenerator();
-            const midiBytes = midiGen.generate(ast);
+            const midiBytes = midiGen.generate(unrolledAst);
             
             // Generate audio events directly from AST
             const audioGen = new AudioEventGenerator();
-            const audioEvents = audioGen.generate(ast);
+            const audioEvents = audioGen.generate(unrolledAst);
             
             // Use our new TS-based engraver
             const engraver = new SVGEngraver();
-            const svgString = engraver.render(ast);
+            const { svg: svgString, layout: scoreLayout } = engraver.render(ast);
             
             const musicxmlExporter = new MusicXMLExporter();
-            const musicxml = musicxmlExporter.export(ast);
+            const musicxml = musicxmlExporter.export(unrolledAst);
             
             const compileDuration = performance.now() - compileStartTime;
             
@@ -130,8 +139,9 @@ self.onmessage = async (e) => {
                     midi: midiBytes,
                     audioEvents: audioEvents,
                     svg: svgString,
+                    layout: scoreLayout,
                     musicxml: musicxml,
-                    ast: ast,
+                    ast: unrolledAst,
                     durationMs: compileDuration.toFixed(2),
                     diagnostics: lintDiagnostics
                 } 
@@ -168,30 +178,31 @@ self.onmessage = async (e) => {
             
             if (wasmMemory && typeof alloc_buffer === 'function' && typeof free_buffer === 'function' && typeof decompile_midi_zero_copy === 'function') {
                 const len = midiBytesArray.length;
+                
+                // 1. Allocate memory inside the Rust Wasm instance
                 const ptr = alloc_buffer(len);
                 
+                // 2. Create a view into that specific memory block and copy our MIDI bytes in
                 const memoryView = new Uint8Array(wasmMemory.buffer, ptr, len);
                 memoryView.set(midiBytesArray);
                 
+                // 3. Tell Rust to decompile the bytes at that pointer
                 tenutoCode = decompile_midi_zero_copy(ptr, len);
                 
+                // 4. Free the memory to prevent leaks
                 free_buffer(ptr, len);
             } else {
-                tenutoCode = decompile_midi_to_tenuto(midiBytesArray);
+                throw new Error("WASM Memory or Zero-Copy functions are not securely linked.");
             }
 
             postMessage({
                 type: 'DECOMPILE_SUCCESS',
-                payload: {
-                    code: tenutoCode
-                }
+                payload: { code: tenutoCode }
             });
         } catch (err: any) {
             postMessage({
                 type: 'ERROR',
-                payload: {
-                    message: err.toString()
-                }
+                payload: { message: err.toString() }
             });
         }
     }

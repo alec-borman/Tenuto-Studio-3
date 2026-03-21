@@ -1,22 +1,119 @@
 import { AST, Event, Note, Chord, Tuplet, MacroCall } from './parser';
 
 export interface AudioEvent {
+  type?: 'note' | 'automation';
   time: number;
-  note: number;
+  note?: number;
   duration: number;
-  velocity: number;
+  velocity?: number;
   instrument: string;
-  style: string;
+  style?: string;
   env?: Record<string, string>;
   src?: string;
   push?: number;
   pull?: number;
   modifiers?: string[];
   nextNote?: number;
+  pan?: number;
+  orbit?: { angle: number, dist: number };
+  fx?: { type: string, dryWet: number };
+  controller?: number | string;
+  startValue?: number;
+  endValue?: number;
+  curve?: string;
 }
 
 export class AudioEventGenerator {
   private bpm: number = 120;
+
+  private processModifiers(modifiers: string[] | undefined, time: number, duration: number, instrument: string, events: AudioEvent[]) {
+    let pan: number | undefined;
+    let orbit: { angle: number, dist: number } | undefined;
+    let fx: { type: string, dryWet: number } | undefined;
+
+    if (modifiers) {
+      for (const mod of modifiers) {
+        if (mod.startsWith('pan(')) {
+          const match = mod.match(/pan\(([-.\d]+)\)/);
+          if (match) {
+            pan = parseFloat(match[1]);
+          } else {
+            const arrayMatch = mod.match(/pan\(\[([-.\d]+),\s*([-.\d]+)\]\)/);
+            if (arrayMatch) {
+              events.push({
+                type: 'automation',
+                time,
+                duration,
+                instrument,
+                controller: 'pan',
+                startValue: parseFloat(arrayMatch[1]),
+                endValue: parseFloat(arrayMatch[2]),
+                curve: 'linear'
+              });
+            } else {
+              const arrayMatchWithCurve = mod.match(/pan\(\[([-.\d]+),\s*([-.\d]+)\],\s*"([^"]+)"\)/);
+              if (arrayMatchWithCurve) {
+                events.push({
+                  type: 'automation',
+                  time,
+                  duration,
+                  instrument,
+                  controller: 'pan',
+                  startValue: parseFloat(arrayMatchWithCurve[1]),
+                  endValue: parseFloat(arrayMatchWithCurve[2]),
+                  curve: arrayMatchWithCurve[3]
+                });
+              }
+            }
+          }
+        } else if (mod.startsWith('orbit(')) {
+          const match = mod.match(/orbit\(([-.\d]+),([-.\d]+)\)/);
+          if (match) orbit = { angle: parseFloat(match[1]), dist: parseFloat(match[2]) };
+        } else if (mod.startsWith('fx(')) {
+          const match = mod.match(/fx\("([^"]+)",([-.\d]+)\)/);
+          if (match) fx = { type: match[1], dryWet: parseFloat(match[2]) };
+        } else if (mod.startsWith('cc(')) {
+          const match = mod.match(/cc\((\d+),\[(\d+),(\d+)\],"([^"]+)"\)/);
+          if (match) {
+            events.push({
+              type: 'automation',
+              time,
+              duration,
+              instrument,
+              controller: parseInt(match[1], 10),
+              startValue: parseInt(match[2], 10),
+              endValue: parseInt(match[3], 10),
+              curve: match[4]
+            });
+          }
+        } else if (mod === 'crescendo') {
+          events.push({
+            type: 'automation',
+            time,
+            duration,
+            instrument,
+            controller: 'volume',
+            startValue: 0.5,
+            endValue: 1.0,
+            curve: 'linear'
+          });
+        } else if (mod === 'diminuendo') {
+          events.push({
+            type: 'automation',
+            time,
+            duration,
+            instrument,
+            controller: 'volume',
+            startValue: 1.0,
+            endValue: 0.5,
+            curve: 'linear'
+          });
+        }
+      }
+    }
+
+    return { pan, orbit, fx };
+  }
 
   public generate(ast: AST): AudioEvent[] {
     const events: AudioEvent[] = [];
@@ -49,6 +146,8 @@ export class AudioEventGenerator {
                   if (event.articulation === 'ff') velocity = 120;
                   if (event.articulation === 'pp') velocity = 40;
                   
+                  const { pan, orbit, fx } = this.processModifiers(event.modifiers, voiceTime, durationInSeconds, def.patch, events);
+
                   events.push({
                     time: voiceTime,
                     note: midiNote,
@@ -60,13 +159,18 @@ export class AudioEventGenerator {
                     src: def.src,
                     push: event.push,
                     pull: event.pull,
-                    modifiers: event.modifiers
+                    modifiers: event.modifiers,
+                    pan,
+                    orbit,
+                    fx
                   });
                 }
               } else if (event.type === 'chord') {
                 for (const note of event.notes) {
                   if (note.pitch !== 'r') {
                     const midiNote = this.pitchToMidi(note.pitch, note.octave, note.accidental);
+                    const { pan, orbit, fx } = this.processModifiers(event.modifiers, voiceTime, durationInSeconds, def.patch, events);
+
                     events.push({
                       time: voiceTime,
                       note: midiNote,
@@ -78,7 +182,10 @@ export class AudioEventGenerator {
                       src: def.src,
                       push: event.push,
                       pull: event.pull,
-                      modifiers: event.modifiers
+                      modifiers: event.modifiers,
+                      pan,
+                      orbit,
+                      fx
                     });
                   }
                 }
@@ -94,6 +201,8 @@ export class AudioEventGenerator {
                   const eDurSeconds = eDurQuarters * secondsPerQuarter;
                   if (e.type === 'note' && e.pitch !== 'r') {
                     const midiNote = this.pitchToMidi(e.pitch, e.octave, e.accidental);
+                    const { pan, orbit, fx } = this.processModifiers(e.modifiers, tupletTime, eDurSeconds, def.patch, events);
+
                     events.push({
                       time: tupletTime,
                       note: midiNote,
@@ -105,7 +214,10 @@ export class AudioEventGenerator {
                       src: def.src,
                       push: e.push,
                       pull: e.pull,
-                      modifiers: e.modifiers
+                      modifiers: e.modifiers,
+                      pan,
+                      orbit,
+                      fx
                     });
                   }
                   tupletTime += eDurSeconds;

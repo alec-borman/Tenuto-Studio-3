@@ -30,6 +30,7 @@ export type Measure = {
   number: number;
   meta?: Record<string, any>;
   parts: Part[];
+  markers?: string[];
 };
 
 export type Part = {
@@ -109,6 +110,16 @@ export class ParserError extends CompilerError {
   }
 }
 
+interface CachedMeasure {
+  measures: Measure[];
+  finalOctave: number;
+  finalDuration: string;
+  finalPitch: string;
+  finalStyle: string;
+}
+
+const measureCache = new Map<string, CachedMeasure>();
+
 export class Parser {
   private tokens: Token[] = [];
   private pos = 0;
@@ -177,6 +188,7 @@ export class Parser {
   }
 
   public parse(): AST {
+    measureCache.clear();
     this.match(TokenType.Keyword, 'tenuto');
     const versionToken = this.match(TokenType.String);
     this.match(TokenType.Symbol, '{');
@@ -321,6 +333,38 @@ export class Parser {
 
         defs.push({ id, name, style, patch, env, src });
       } else if (this.check(TokenType.Keyword, 'measure')) {
+        const startPos = this.pos;
+        let depth = 0;
+        let endPos = this.pos;
+        while (endPos < this.tokens.length) {
+          if (this.tokens[endPos].value === '{') depth++;
+          if (this.tokens[endPos].value === '}') {
+            depth--;
+            if (depth === 0) {
+              endPos++;
+              break;
+            }
+          }
+          endPos++;
+        }
+        
+        const measureTokens = this.tokens.slice(startPos, endPos);
+        const measureTokensHash = measureTokens.map(t => t.value).join('');
+        const stateHash = `${this.currentOctave}-${this.currentDuration}-${this.currentPitch}-${this.currentStyle}`;
+        const defsHash = JSON.stringify(defs);
+        const fullHash = `${stateHash}-${defsHash}-${measureTokensHash}`;
+        
+        if (measureCache.has(fullHash)) {
+          const cached = measureCache.get(fullHash)!;
+          measures.push(...cached.measures);
+          this.currentOctave = cached.finalOctave;
+          this.currentDuration = cached.finalDuration;
+          this.currentPitch = cached.finalPitch;
+          this.currentStyle = cached.finalStyle;
+          this.pos = endPos;
+          continue;
+        }
+
         this.advance();
         const numToken = this.match(TokenType.Number);
         let number = parseInt(numToken.value, 10);
@@ -345,8 +389,22 @@ export class Parser {
 
         const parsedParts: { id: string, meta?: Record<string, any>, measureVoices: Voice[][] }[] = [];
         let measureMeta: Record<string, any> | undefined = undefined;
+        let measureMarkers: string[] = [];
 
         while (!this.check(TokenType.Symbol, '}')) {
+          if (this.check(TokenType.Symbol, '|:')) {
+            measureMarkers.push(this.advance().value);
+            continue;
+          }
+          if (this.check(TokenType.Symbol, ':|')) {
+            measureMarkers.push(this.advance().value);
+            continue;
+          }
+          if (this.check(TokenType.Symbol, '[1.') || this.check(TokenType.Symbol, '[2.')) {
+            measureMarkers.push(this.advance().value);
+            continue;
+          }
+
           if (this.check(TokenType.Keyword, 'meta')) {
             this.advance();
             this.match(TokenType.Symbol, '@');
@@ -428,6 +486,7 @@ export class Parser {
         }
         this.match(TokenType.Symbol, '}');
         
+        const parsedMeasures = [];
         for (let i = number; i <= endNumber; i++) {
           const measureParts: Part[] = [];
           for (const p of parsedParts) {
@@ -435,8 +494,17 @@ export class Parser {
             const voices = p.measureVoices[mIndex] || p.measureVoices[p.measureVoices.length - 1] || [];
             measureParts.push({ id: p.id, meta: p.meta, voices });
           }
-          measures.push({ number: i, meta: measureMeta, parts: measureParts });
+          parsedMeasures.push({ number: i, meta: measureMeta, parts: measureParts, markers: measureMarkers.length > 0 ? measureMarkers : undefined });
         }
+        measures.push(...parsedMeasures);
+        
+        measureCache.set(fullHash, {
+          measures: parsedMeasures,
+          finalOctave: this.currentOctave,
+          finalDuration: this.currentDuration,
+          finalPitch: this.currentPitch,
+          finalStyle: this.currentStyle
+        });
       } else {
         const token = this.peek();
         throw new ParserError(`Unexpected token ${token.value}`, token.line, token.column);
@@ -486,11 +554,86 @@ export class Parser {
         events.push(this.parseTuplet());
       } else if (this.check(TokenType.Symbol, '(')) {
         events.push(this.parseTuplet());
+      } else if (this.check(TokenType.Identifier)) {
+        if (this.tokens[this.pos + 1]?.value === '(') {
+          events.push(...this.parseEuclidean());
+        } else {
+          events.push(this.parseNote());
+        }
       } else {
         events.push(this.parseNote());
       }
     }
     return events;
+  }
+
+  private parseEuclidean(): Note[] {
+    const token = this.match(TokenType.Identifier);
+    const val = token.value;
+    
+    let pitch = 'r';
+    let accidental: string | undefined;
+    let octave = this.currentOctave;
+
+    if (val !== 'r') {
+      const match = val.match(/^([a-gA-G])([#b+\-^v]*)([0-9]*)$/);
+      if (!match) {
+        throw new ParserError(`Invalid note format: ${val}`, token.line, token.column);
+      }
+      pitch = match[1].toLowerCase();
+      accidental = match[2] || undefined;
+      
+      if (match[3]) {
+        octave = parseInt(match[3], 10);
+      } else if (this.currentStyle === 'relative') {
+        octave = this.calculateRelativeOctave(pitch);
+      }
+      
+      this.currentOctave = octave;
+      this.currentPitch = pitch;
+    }
+
+    this.match(TokenType.Symbol, '(');
+    const hits = parseInt(this.match(TokenType.Number).value, 10);
+    this.match(TokenType.Symbol, ',');
+    const steps = parseInt(this.match(TokenType.Number).value, 10);
+    this.match(TokenType.Symbol, ')');
+
+    const { duration, articulation, modifiers, cross, push, pull } = this.parseDurationAndModifiers();
+
+    const notes: Note[] = [];
+    for (let i = 0; i < steps; i++) {
+      // Bresenham / Euclidean rhythm logic
+      const isHit = (i * hits) % steps < hits;
+      
+      if (isHit) {
+        notes.push({
+          type: 'note',
+          pitch,
+          octave,
+          accidental,
+          duration,
+          articulation,
+          modifiers,
+          cross,
+          push,
+          pull,
+          line: token.line,
+          column: token.column
+        });
+      } else {
+        notes.push({
+          type: 'note',
+          pitch: 'r',
+          octave,
+          duration,
+          line: token.line,
+          column: token.column
+        });
+      }
+    }
+
+    return notes;
   }
 
   private parseDurationAndModifiers(): { duration: string, articulation?: string, modifiers?: string[], cross?: string, push?: number, pull?: number } {
@@ -545,23 +688,25 @@ export class Parser {
                 pull = parseInt(this.match(TokenType.Number).value, 10);
                 this.match(TokenType.Symbol, ')');
               }
-            } else if (part === 'slice') {
+            } else if (['slice', 'pan', 'orbit', 'fx', 'glide', 'cc'].includes(part)) {
               if (this.check(TokenType.Symbol, '(')) {
                 this.advance();
-                const sliceVal = this.match(TokenType.Number).value;
-                modifiers.push(`slice(${sliceVal})`);
-                this.match(TokenType.Symbol, ')');
-              }
-            } else if (part === 'glide') {
-              if (this.check(TokenType.Symbol, '(')) {
-                this.advance();
-                let glideVal = this.match(TokenType.Number).value;
-                if (this.check(TokenType.Identifier)) {
-                    glideVal += this.advance().value;
+                let args = '';
+                while (!this.check(TokenType.Symbol, ')') && !this.check(TokenType.EOF)) {
+                  const token = this.advance();
+                  if (token.type === TokenType.String) {
+                    args += `"${token.value}"`;
+                  } else {
+                    args += token.value;
+                  }
                 }
-                modifiers.push(`glide(${glideVal})`);
+                modifiers.push(`${part}(${args})`);
                 this.match(TokenType.Symbol, ')');
               }
+            } else if (part === 'crescendo') {
+              modifiers.push('crescendo');
+            } else if (part === 'diminuendo') {
+              modifiers.push('diminuendo');
             } else if (['marc', 'staccato', 'tenuto', 'slur', 'tie', 'p', 'f', 'mf', 'mp', 'ff', 'pp'].includes(part)) {
               articulation = part;
             } else if (part) {

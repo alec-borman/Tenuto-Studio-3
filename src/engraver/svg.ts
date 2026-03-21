@@ -2,6 +2,7 @@ import { AST, Event, Note, Chord, Tuplet, MacroCall } from '../compiler/parser';
 import { EngraverLayout, ScoreLayout, SystemLayout, MeasureLayout, PositionedEvent } from './layout';
 import { SMUFL_METADATA } from './smufl';
 import { Skyline } from './skyline';
+import { Kurbo } from './kurbo';
 
 export class SVGEngraver {
   private layoutEngine: EngraverLayout;
@@ -11,10 +12,10 @@ export class SVGEngraver {
     this.layoutEngine = new EngraverLayout();
   }
 
-  public render(ast: AST): string {
+  public render(ast: AST): { svg: string, layout: ScoreLayout } {
     this.ast = ast;
     const layout = this.layoutEngine.layout(ast);
-    return this.generateSVG(layout, ast);
+    return { svg: this.generateSVG(layout, ast), layout };
   }
 
   private generateSVG(layout: ScoreLayout, ast: AST): string {
@@ -86,7 +87,16 @@ export class SVGEngraver {
       svg += `<path d="${clefGlyph.path}" transform="translate(10, ${staffY + 30}) scale(10)" class="clef-path" fill="#000" />`;
       
       // Barlines at start of system
-      svg += `<line x1="0" y1="${staffY}" x2="0" y2="${staffY + 40}" class="barline" />`;
+      let startBarline = `<line x1="0" y1="${staffY}" x2="0" y2="${staffY + 40}" class="barline" />`;
+      if (system.measures[0] && system.measures[0].measure.markers?.includes('|:')) {
+        startBarline = `
+          <line x1="0" y1="${staffY}" x2="0" y2="${staffY + 40}" class="barline" stroke-width="3" />
+          <line x1="4" y1="${staffY}" x2="4" y2="${staffY + 40}" class="barline" stroke-width="1" />
+          <circle cx="8" cy="${staffY + 15}" r="2" fill="#000" />
+          <circle cx="8" cy="${staffY + 25}" r="2" fill="#000" />
+        `;
+      }
+      svg += startBarline;
     });
 
     const topSkyline = new Skyline(system.measures.reduce((sum, m) => sum + m.width, 0) + 100, 10, true);
@@ -97,23 +107,131 @@ export class SVGEngraver {
     for (const measure of system.measures) {
       svg += `<g transform="translate(${currentX}, 0)">`;
       
+      const accidentalState: Record<string, Record<string, string>> = {};
+
       // Render events
       for (const partData of measure.events) {
         const partIndex = parts.indexOf(partData.partId);
         if (partIndex === -1) continue;
         
         const staffY = partIndex * staffSpacing;
+        if (!accidentalState[partData.partId]) accidentalState[partData.partId] = {};
+        const partAccidentalState = accidentalState[partData.partId];
+
+        // Beam grouping
+        const beamGroups: PositionedEvent[][] = [];
+        let currentBeamGroup: PositionedEvent[] = [];
+
+        for (let i = 0; i < partData.positionedEvents.length; i++) {
+          const pe = partData.positionedEvents[i];
+          const isRest = pe.event.type === 'note' && pe.event.pitch === 'r';
+          const dur = pe.duration;
+          
+          if (!isRest && dur > 0 && dur < 1) { // shorter than a quarter note
+            if (currentBeamGroup.length === 0) {
+              currentBeamGroup.push(pe);
+            } else {
+              const lastPe = currentBeamGroup[currentBeamGroup.length - 1];
+              if (Math.floor(lastPe.logicalTime) === Math.floor(pe.logicalTime)) {
+                currentBeamGroup.push(pe);
+              } else {
+                if (currentBeamGroup.length > 1) beamGroups.push(currentBeamGroup);
+                currentBeamGroup = [pe];
+              }
+            }
+          } else {
+            if (currentBeamGroup.length > 1) beamGroups.push(currentBeamGroup);
+            currentBeamGroup = [];
+          }
+        }
+        if (currentBeamGroup.length > 1) beamGroups.push(currentBeamGroup);
+
+        const beamedEvents = new Set<PositionedEvent>();
+        const beamGroupLines = new Map<PositionedEvent, { startX: number, startY: number, endX: number, endY: number, stemUp: boolean }>();
+
+        for (const group of beamGroups) {
+          let sumY = 0;
+          let count = 0;
+          for (const pe of group) {
+            beamedEvents.add(pe);
+            if (pe.event.type === 'note') {
+              sumY += this.getPitchY(pe.event.pitch, pe.event.octave, staffY);
+              count++;
+            } else if (pe.event.type === 'chord') {
+              for (const n of pe.event.notes) {
+                sumY += this.getPitchY(n.pitch, n.octave, staffY);
+                count++;
+              }
+            }
+          }
+          const avgY = count > 0 ? sumY / count : staffY + 20;
+          const stemUp = avgY > staffY + 20;
+          
+          const firstPe = group[0];
+          const lastPe = group[group.length - 1];
+          const firstY = this.getEventY(firstPe.event, staffY);
+          const lastY = this.getEventY(lastPe.event, staffY);
+          const stemDir = stemUp ? -1 : 1;
+          const stemHeight = 30;
+          
+          let startY = firstY + stemDir * stemHeight;
+          let endY = lastY + stemDir * stemHeight;
+          
+          const dy = endY - startY;
+          const dx = lastPe.x - firstPe.x;
+          if (dx > 0) {
+            const slope = dy / dx;
+            const maxSlope = 0.25;
+            if (Math.abs(slope) > maxSlope) {
+              const adjustedDy = Math.sign(slope) * maxSlope * dx;
+              const midY = (startY + endY) / 2;
+              startY = midY - adjustedDy / 2;
+              endY = midY + adjustedDy / 2;
+            }
+          }
+          
+          const lineData = { startX: firstPe.x, startY, endX: lastPe.x, endY, stemUp };
+          for (const pe of group) {
+            beamGroupLines.set(pe, lineData);
+          }
+          
+          // Draw primary beam
+          const stemOffset = stemUp ? 11 : 5;
+          svg += `<line x1="${firstPe.x + stemOffset}" y1="${startY}" x2="${lastPe.x + stemOffset}" y2="${endY}" stroke="#000" stroke-width="4" />`;
+        }
         
-        for (const pe of partData.positionedEvents) {
-          svg += this.renderEvent(pe, staffY, topSkyline, bottomSkyline, parts, staffSpacing, currentX);
+        for (let i = 0; i < partData.positionedEvents.length; i++) {
+          const pe = partData.positionedEvents[i];
+          const nextPe = partData.positionedEvents[i + 1];
+          svg += this.renderEvent(pe, nextPe, staffY, topSkyline, bottomSkyline, parts, staffSpacing, currentX, partAccidentalState, beamedEvents, beamGroupLines);
         }
       }
       
       // End barline
       parts.forEach((partId, partIndex) => {
         const staffY = partIndex * staffSpacing;
-        svg += `<line x1="${measure.width}" y1="${staffY}" x2="${measure.width}" y2="${staffY + 40}" class="barline" />`;
+        let endBarline = `<line x1="${measure.width}" y1="${staffY}" x2="${measure.width}" y2="${staffY + 40}" class="barline" />`;
+        
+        if (measure.measure.markers?.includes(':|')) {
+          endBarline = `
+            <line x1="${measure.width - 4}" y1="${staffY}" x2="${measure.width - 4}" y2="${staffY + 40}" class="barline" stroke-width="1" />
+            <line x1="${measure.width}" y1="${staffY}" x2="${measure.width}" y2="${staffY + 40}" class="barline" stroke-width="3" />
+            <circle cx="${measure.width - 8}" cy="${staffY + 15}" r="2" fill="#000" />
+            <circle cx="${measure.width - 8}" cy="${staffY + 25}" r="2" fill="#000" />
+          `;
+        }
+        svg += endBarline;
       });
+      
+      // Voltas
+      if (measure.measure.markers?.includes('[1.') || measure.measure.markers?.includes('[2.')) {
+        const voltaText = measure.measure.markers.includes('[1.') ? '1.' : '2.';
+        const startY = -15;
+        svg += `
+          <path d="M 0 ${startY + 10} L 0 ${startY} L ${measure.width} ${startY}" fill="none" stroke="#000" stroke-width="1" />
+          <text x="5" y="${startY + 12}" font-family="sans-serif" font-size="12px" font-weight="bold">${voltaText}</text>
+        `;
+      }
       
       svg += `</g>`;
       currentX += measure.width;
@@ -151,13 +269,13 @@ export class SVGEngraver {
     return staffY + 20;
   }
 
-  private renderEvent(pe: PositionedEvent, staffY: number, topSkyline: Skyline, bottomSkyline: Skyline, parts: string[], staffSpacing: number, measureX: number): string {
+  private renderEvent(pe: PositionedEvent, nextPe: PositionedEvent | undefined, staffY: number, topSkyline: Skyline, bottomSkyline: Skyline, parts: string[], staffSpacing: number, measureX: number, partAccidentalState: Record<string, string>, beamedEvents: Set<PositionedEvent>, beamGroupLines: Map<PositionedEvent, { startX: number, startY: number, endX: number, endY: number, stemUp: boolean }>): string {
     if (pe.event.type === 'note') {
-      return this.renderNote(pe.event, pe.x, staffY, topSkyline, bottomSkyline, parts, staffSpacing, measureX);
+      return this.renderNote(pe, pe.event, pe.x, nextPe?.x, staffY, topSkyline, bottomSkyline, parts, staffSpacing, measureX, partAccidentalState, beamedEvents, beamGroupLines);
     } else if (pe.event.type === 'chord') {
       let svg = '';
       for (const note of pe.event.notes) {
-        svg += this.renderNote(note, pe.x, staffY, topSkyline, bottomSkyline, parts, staffSpacing, measureX);
+        svg += this.renderNote(pe, note, pe.x, nextPe?.x, staffY, topSkyline, bottomSkyline, parts, staffSpacing, measureX, partAccidentalState, beamedEvents, beamGroupLines);
       }
       return svg;
     } else if (pe.event.type === 'tuplet') {
@@ -168,8 +286,10 @@ export class SVGEngraver {
         let minY = Infinity;
         let maxY = -Infinity;
 
-        for (const ie of pe.internalEvents) {
-          svg += this.renderEvent(ie, staffY, topSkyline, bottomSkyline, parts, staffSpacing, measureX);
+        for (let i = 0; i < pe.internalEvents.length; i++) {
+          const ie = pe.internalEvents[i];
+          const nextIe = pe.internalEvents[i + 1];
+          svg += this.renderEvent(ie, nextIe, staffY, topSkyline, bottomSkyline, parts, staffSpacing, measureX, partAccidentalState, beamedEvents, beamGroupLines);
           minX = Math.min(minX, ie.x);
           maxX = Math.max(maxX, ie.x);
           const y = this.getEventY(ie.event, staffY);
@@ -192,6 +312,22 @@ export class SVGEngraver {
         svg += `<text x="${midX}" y="${midY - 5}" font-family="serif" font-size="12px" text-anchor="middle" font-style="italic">${pe.event.ratio}</text>`;
       }
       return svg;
+    } else if (pe.event.type === 'automation') {
+        const auto = pe.event;
+        const startX = pe.x;
+        const endX = nextPe ? nextPe.x : pe.x + 50; // Approximation
+        const yPos = staffY - 30; // Above staff
+        
+        let svg = '';
+        svg += `<text x="${startX}" y="${yPos - 5}" font-family="sans-serif" font-size="10px" fill="#666">${auto.controller}</text>`;
+        
+        if (auto.curve === 'linear') {
+            svg += `<line x1="${startX}" y1="${yPos}" x2="${endX}" y2="${yPos}" stroke="#666" stroke-width="1" stroke-dasharray="2,2" />`;
+        } else {
+            // Draw a simple curve representation
+            svg += `<path d="M ${startX} ${yPos} Q ${(startX + endX) / 2} ${yPos - 10} ${endX} ${yPos}" fill="none" stroke="#666" stroke-width="1" stroke-dasharray="2,2" />`;
+        }
+        return svg;
     } else if (pe.event.type === 'macro_call') {
         const macro = this.ast?.macros.find(m => m.id === (pe.event as MacroCall).id);
         if (!macro) return '';
@@ -200,12 +336,9 @@ export class SVGEngraver {
         let currentX = pe.x;
         // Simple rendering for macro events, just spacing them out a bit
         // A real implementation would need to properly layout the macro events
-        for (const macroEvent of macro.events) {
+        for (let i = 0; i < macro.events.length; i++) {
+            const macroEvent = macro.events[i];
             let eventToRender = macroEvent;
-            if (pe.event.transpose) {
-                // We'd need to transpose the event here, but for now we'll just render it as is
-                // since transposing requires a full pitch manipulation utility
-            }
             
             // Create a mock positioned event for the macro event
             const mockPe: PositionedEvent = {
@@ -216,7 +349,7 @@ export class SVGEngraver {
                 logicalTime: 0
             };
             
-            svg += this.renderEvent(mockPe, staffY, topSkyline, bottomSkyline, parts, staffSpacing, measureX);
+            svg += this.renderEvent(mockPe, undefined, staffY, topSkyline, bottomSkyline, parts, staffSpacing, measureX, partAccidentalState, beamedEvents, beamGroupLines);
             currentX += 30; // Arbitrary spacing for macro events
         }
         return svg;
@@ -224,7 +357,7 @@ export class SVGEngraver {
     return '';
   }
 
-  private renderNote(note: Note, x: number, staffY: number, topSkyline: Skyline, bottomSkyline: Skyline, parts: string[], staffSpacing: number, measureX: number): string {
+  private renderNote(pe: PositionedEvent, note: Note, x: number, nextX: number | undefined, staffY: number, topSkyline: Skyline, bottomSkyline: Skyline, parts: string[], staffSpacing: number, measureX: number, partAccidentalState: Record<string, string>, beamedEvents: Set<PositionedEvent>, beamGroupLines: Map<PositionedEvent, { startX: number, startY: number, endX: number, endY: number, stemUp: boolean }>): string {
     let targetStaffY = staffY;
     if (note.cross) {
       const targetPartIndex = parts.indexOf(note.cross);
@@ -252,10 +385,15 @@ export class SVGEngraver {
     const scale = isGrace ? 0.7 : 1;
     
     // Determine notehead type based on duration
-    const duration = parseFloat(note.duration || '4');
+    let durationVal = 4;
+    let durStr = note.duration || '4';
+    if (durStr.endsWith('.')) durStr = durStr.slice(0, -1);
+    const parsedDur = parseInt(durStr, 10);
+    if (!isNaN(parsedDur) && parsedDur > 0) durationVal = parsedDur;
+
     let glyphName = 'noteheadBlack';
-    if (duration === 2) glyphName = 'noteheadHalf';
-    if (duration === 1) glyphName = 'noteheadWhole';
+    if (durationVal === 2) glyphName = 'noteheadHalf';
+    if (durationVal === 1) glyphName = 'noteheadWhole';
     
     const glyph = SMUFL_METADATA[glyphName];
     const glyphScale = 10 * scale; // 1 staff space = 10px
@@ -280,7 +418,14 @@ export class SVGEngraver {
       stemUp = targetStaffY > staffY;
     }
 
-    if (duration >= 2 || isGrace) {
+    const isBeamed = beamedEvents.has(pe);
+    let beamLine = null;
+    if (isBeamed) {
+      beamLine = beamGroupLines.get(pe)!;
+      stemUp = beamLine.stemUp;
+    }
+
+    if (durationVal >= 2 || isGrace || isBeamed) {
       const stemHeight = 30 * scale;
       
       // Use SMuFL stem attachment points
@@ -294,6 +439,11 @@ export class SVGEngraver {
         stemEndY = staffY + 20;
       }
 
+      if (isBeamed && beamLine) {
+        const t = (x - beamLine.startX) / (beamLine.endX - beamLine.startX || 1);
+        stemEndY = beamLine.startY + t * (beamLine.endY - beamLine.startY);
+      }
+
       svg += `<line x1="${stemX}" y1="${stemStartY}" x2="${stemX}" y2="${stemEndY}" class="stem" />`;
       
       // Update skylines for stem
@@ -302,13 +452,22 @@ export class SVGEngraver {
     }
     
     // Accidental
-    if (note.accidental) {
+    if (note.pitch !== 'r') {
+      const pitchKey = `${note.pitch.toLowerCase()}${note.octave}`;
+      const currentAccidental = note.accidental || '';
+      const previousAccidental = partAccidentalState[pitchKey] || '';
+
       let accSymbol = '';
-      if (note.accidental === '#') accSymbol = '♯';
-      else if (note.accidental === 'b') accSymbol = '♭';
-      else if (note.accidental === '+') accSymbol = '𝄲'; // Quarter sharp
-      else if (note.accidental === '-') accSymbol = '𝄳'; // Quarter flat
-      
+      if (currentAccidental !== previousAccidental) {
+        if (currentAccidental === '#') accSymbol = '♯';
+        else if (currentAccidental === 'b') accSymbol = '♭';
+        else if (currentAccidental === '+') accSymbol = '𝄲'; // Quarter sharp
+        else if (currentAccidental === '-') accSymbol = '𝄳'; // Quarter flat
+        else if (currentAccidental === '') accSymbol = '♮'; // Natural
+        
+        partAccidentalState[pitchKey] = currentAccidental;
+      }
+
       if (accSymbol) {
         // Resolve accidental collision using skyline
         const accX = x - 15;
@@ -320,31 +479,18 @@ export class SVGEngraver {
     if (note.articulation) {
       if (note.articulation === 'slur' || note.articulation === 'tie') {
         const arcStartX = x + 5;
-        const arcEndX = x + 30;
+        const arcEndX = nextX ? nextX + 5 : x + 30;
         
-        // Use skyline to find the vertical position for the slur
-        const arcWidth = 25;
-        const height = 15;
+        const isTop = !stemUp;
+        const skyline = isTop ? topSkyline : bottomSkyline;
+        const dir = isTop ? -1 : 1;
         
-        let arcStartY = 0;
-        let controlY = 0;
-        let arcEndY = 0;
+        const p0 = { x: arcStartX, y: y + dir * 10 };
+        const p3 = { x: arcEndX, y: y + dir * 10 };
         
-        if (stemUp) {
-          // Drop onto bottom skyline
-          const resolvedY = bottomSkyline.drop((measureX + arcStartX) / 10, arcWidth / 10, height / 10, y + 10);
-          arcStartY = resolvedY;
-          arcEndY = resolvedY;
-          controlY = resolvedY + height;
-        } else {
-          // Drop onto top skyline
-          const resolvedY = topSkyline.drop((measureX + arcStartX) / 10, arcWidth / 10, height / 10, y - 10);
-          arcStartY = resolvedY;
-          arcEndY = resolvedY;
-          controlY = resolvedY - height;
-        }
+        const [cp0, cp1, cp2, cp3] = Kurbo.routeSlur(p0, p3, skyline, isTop, measureX);
         
-        svg += `<path d="M ${arcStartX} ${arcStartY} Q ${(arcStartX + arcEndX) / 2} ${controlY} ${arcEndX} ${arcEndY}" fill="none" stroke="#000" stroke-width="1.5" />`;
+        svg += `<path d="M ${cp0.x} ${cp0.y} C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${cp3.x} ${cp3.y}" fill="none" stroke="#000" stroke-width="1.5" />`;
       } else {
         let artSymbol = '';
         if (note.articulation === 'marc') artSymbol = '^';
@@ -374,6 +520,29 @@ export class SVGEngraver {
         }
         
         svg += `<text x="${x + 5}" y="${resolvedY + (direction === 1 ? 10 : 0)}" font-family="serif" font-size="14px" text-anchor="middle" ${fontStyle}>${artSymbol}</text>`;
+      }
+    }
+    
+    // Modifiers (crescendo/diminuendo)
+    if (note.modifiers) {
+      for (const mod of note.modifiers) {
+        if (mod === 'crescendo' || mod === 'diminuendo') {
+          const startX = x + 5;
+          const endX = nextX ? nextX - 5 : x + 30;
+          const yPos = targetStaffY + 65;
+          
+          if (mod === 'crescendo') {
+            svg += `
+              <line x1="${startX}" y1="${yPos}" x2="${endX}" y2="${yPos - 5}" stroke="#000" stroke-width="1" />
+              <line x1="${startX}" y1="${yPos}" x2="${endX}" y2="${yPos + 5}" stroke="#000" stroke-width="1" />
+            `;
+          } else {
+            svg += `
+              <line x1="${startX}" y1="${yPos - 5}" x2="${endX}" y2="${yPos}" stroke="#000" stroke-width="1" />
+              <line x1="${startX}" y1="${yPos + 5}" x2="${endX}" y2="${yPos}" stroke="#000" stroke-width="1" />
+            `;
+          }
+        }
       }
     }
     

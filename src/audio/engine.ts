@@ -1,6 +1,8 @@
 import * as Tone from 'tone';
 import { Soundfont } from 'smplr';
 import { AudioEvent } from '../compiler/audio';
+// @ts-ignore
+import processorUrl from './processor.ts?worker&url';
 
 const PATCH_MAP: Record<string, string> = {
   'gm_piano': 'acoustic_grand_piano',
@@ -17,24 +19,100 @@ export class AudioEngine {
   private soundfonts: Record<string, Soundfont> = {};
   private activeNodes: Set<any> = new Set();
   private audioBuffers: Record<string, AudioBuffer> = {};
+  private workletNode: AudioWorkletNode | null = null;
+  private convolver: ConvolverNode | null = null;
+  private dryGain: GainNode | null = null;
+  private wetGain: GainNode | null = null;
+  private trackBuses: Record<string, GainNode> = {};
+  private isInitialized: boolean = false;
 
   constructor() {
     this.context = Tone.getContext().rawContext as AudioContext;
   }
 
+  public async init() {
+    if (this.isInitialized) return;
+    
+    try {
+      await this.context.audioWorklet.addModule(processorUrl);
+      
+      // We request 2 outputs: [0] is dry, [1] is wet
+      this.workletNode = new AudioWorkletNode(this.context, 'tenuto-processor', {
+        numberOfInputs: 1,
+        numberOfOutputs: 2,
+        outputChannelCount: [2, 2]
+      });
+
+      this.convolver = this.context.createConvolver();
+      this.dryGain = this.context.createGain();
+      this.wetGain = this.context.createGain();
+
+      // Load a simple impulse response for reverb
+      this.generateSyntheticIR();
+
+      // Route dry signal
+      this.workletNode.connect(this.dryGain, 0);
+      this.dryGain.connect(this.context.destination);
+
+      // Route wet signal through convolver
+      this.workletNode.connect(this.convolver, 1);
+      this.convolver.connect(this.wetGain);
+      this.wetGain.connect(this.context.destination);
+
+      // Listen for messages from worklet (e.g., to play soundfonts)
+      this.workletNode.port.onmessage = (e) => {
+        if (e.data.type === 'PLAY_SOUNDFONT') {
+          this.scheduleSoundfont(e.data.event);
+        } else if (e.data.type === 'AUTOMATION') {
+          this.handleAutomation(e.data.event);
+        }
+      };
+
+      this.isInitialized = true;
+    } catch (e) {
+      console.error("Failed to initialize AudioWorklet", e);
+    }
+  }
+
+  private generateSyntheticIR() {
+    if (!this.convolver) return;
+    const sampleRate = this.context.sampleRate;
+    const length = sampleRate * 2.0; // 2 seconds
+    const impulse = this.context.createBuffer(2, length, sampleRate);
+    const left = impulse.getChannelData(0);
+    const right = impulse.getChannelData(1);
+    for (let i = 0; i < length; i++) {
+      const decay = Math.exp(-i / (sampleRate * 0.5));
+      left[i] = (Math.random() * 2 - 1) * decay;
+      right[i] = (Math.random() * 2 - 1) * decay;
+    }
+    this.convolver.buffer = impulse;
+  }
+
   public async loadInstruments(events: AudioEvent[]) {
+    await this.init();
     const promises: Promise<void>[] = [];
     
     for (const event of events) {
+      if (!this.trackBuses[event.instrument]) {
+        const bus = this.context.createGain();
+        this.trackBuses[event.instrument] = bus;
+        // Connect bus to worklet input so it can be sampled
+        if (this.workletNode) {
+          bus.connect(this.workletNode);
+        }
+      }
+
       if (event.style === 'standard') {
         const instrumentName = PATCH_MAP[event.instrument] || 'acoustic_grand_piano';
         if (!this.soundfonts[instrumentName]) {
           this.soundfonts[instrumentName] = new Soundfont(this.context, { instrument: instrumentName });
-          // smplr loads asynchronously, but we don't have a promise API for it directly here
-          // It will play when loaded.
+          // Route soundfont output to its bus
+          // smplr Soundfont has an output node
+          this.soundfonts[instrumentName].output.connect(this.trackBuses[event.instrument]);
         }
       } else if (event.style === 'concrete' && event.src) {
-        if (!this.audioBuffers[event.src]) {
+        if (!event.src.startsWith('bus://') && !this.audioBuffers[event.src]) {
           promises.push(this.loadAudioBuffer(event.src));
         }
       }
@@ -49,181 +127,111 @@ export class AudioEngine {
       const arrayBuffer = await response.arrayBuffer();
       const audioBuffer = await this.context.decodeAudioData(arrayBuffer);
       this.audioBuffers[url] = audioBuffer;
+      
+      // Send buffer to worklet
+      if (this.workletNode) {
+        const channels = [];
+        for (let i = 0; i < audioBuffer.numberOfChannels; i++) {
+          channels.push(audioBuffer.getChannelData(i));
+        }
+        this.workletNode.port.postMessage({
+          type: 'LOAD_BUFFER',
+          url,
+          buffer: channels
+        });
+      }
     } catch (e) {
       console.error(`Failed to load concrete audio from ${url}`, e);
     }
   }
 
+  public play(events: AudioEvent[], startTime: number) {
+    if (!this.workletNode) return;
+    
+    // Adjust event times relative to startTime
+    const adjustedEvents = events.map(e => {
+      let time = e.time;
+      if (e.push) time -= e.push / 1000000;
+      if (e.pull) time += e.pull / 1000000;
+      return { ...e, time: startTime + time };
+    });
+
+    this.workletNode.port.postMessage({
+      type: 'PLAY',
+      events: adjustedEvents
+    });
+  }
+
+  private scheduleSoundfont(event: AudioEvent) {
+    const instrumentName = PATCH_MAP[event.instrument] || 'acoustic_grand_piano';
+    const sf = this.soundfonts[instrumentName];
+    if (sf) {
+      sf.start({
+        note: event.note,
+        velocity: event.velocity,
+        time: event.time,
+        duration: event.duration
+      });
+    }
+  }
+
+  private handleAutomation(event: AudioEvent) {
+    if (event.controller === 'volume' && this.dryGain && this.wetGain) {
+      const startVal = event.startValue ?? 1.0;
+      const endVal = event.endValue ?? 1.0;
+      
+      this.dryGain.gain.setValueAtTime(startVal, event.time);
+      if (event.curve === 'linear') {
+        this.dryGain.gain.linearRampToValueAtTime(endVal, event.time + event.duration);
+      } else {
+        this.dryGain.gain.exponentialRampToValueAtTime(Math.max(0.001, endVal), event.time + event.duration);
+      }
+      
+      this.wetGain.gain.setValueAtTime(startVal, event.time);
+      if (event.curve === 'linear') {
+        this.wetGain.gain.linearRampToValueAtTime(endVal, event.time + event.duration);
+      } else {
+        this.wetGain.gain.exponentialRampToValueAtTime(Math.max(0.001, endVal), event.time + event.duration);
+      }
+    } else if (event.controller === 'pan') {
+      // In a more complex setup, we'd have a StereoPannerNode per instrument/track.
+      // For now, we'll create a temporary panner and apply it to the master output.
+      // A proper implementation would route the specific instrument through this panner.
+      const panner = this.context.createStereoPanner();
+      
+      const startVal = event.startValue ?? 0;
+      const endVal = event.endValue ?? 0;
+
+      panner.pan.setValueAtTime(startVal, event.time);
+      if (event.curve === 'linear') {
+        panner.pan.linearRampToValueAtTime(endVal, event.time + event.duration);
+      } else {
+        // pan values can be negative, so exponential ramp might not work directly if crossing 0
+        // We'll just use linear for pan for simplicity unless we map it to 0-1
+        panner.pan.linearRampToValueAtTime(endVal, event.time + event.duration);
+      }
+
+      // Connect the panner to the destination (this is a simplified routing)
+      // In a real scenario, this would be inserted into the specific instrument's chain
+      if (this.dryGain) {
+        this.dryGain.disconnect();
+        this.dryGain.connect(panner);
+        panner.connect(this.context.destination);
+      }
+    }
+  }
+
+  // Keep this for backwards compatibility if needed by other components
   public schedule(event: AudioEvent, startTime: number) {
-    let scheduleTime = startTime + event.time;
-    
-    // Apply micro-timing (push/pull in microseconds)
-    if (event.push) scheduleTime -= event.push / 1000000;
-    if (event.pull) scheduleTime += event.pull / 1000000;
-    
-    if (scheduleTime < this.context.currentTime) {
-      scheduleTime = this.context.currentTime;
-    }
-
-    if (event.style === 'standard') {
-      const instrumentName = PATCH_MAP[event.instrument] || 'acoustic_grand_piano';
-      const sf = this.soundfonts[instrumentName];
-      if (sf) {
-        sf.start({
-          note: event.note,
-          velocity: event.velocity,
-          time: scheduleTime,
-          duration: event.duration
-        });
-      }
-    } else if (event.style === 'synth') {
-      this.scheduleSynth(event, scheduleTime);
-    } else if (event.style === 'concrete') {
-      this.scheduleConcrete(event, scheduleTime);
-    }
-  }
-
-  private scheduleSynth(event: AudioEvent, scheduleTime: number) {
-    const osc = this.context.createOscillator();
-    const gain = this.context.createGain();
-    
-    osc.type = 'square'; // Default, could be configurable
-    
-    // Convert MIDI note to frequency
-    const freq = 440 * Math.pow(2, (event.note - 69) / 12);
-    osc.frequency.setValueAtTime(freq, scheduleTime);
-    
-    if (event.modifiers) {
-      for (const mod of event.modifiers) {
-        if (mod.startsWith('glide(')) {
-          const match = mod.match(/glide\(([\d.]+)(ms|s)?\)/);
-          if (match) {
-            const timeVal = match[1] + (match[2] || 'ms');
-            const glideTime = this.parseTime(timeVal);
-            
-            let targetNote = event.note;
-            if (event.nextNote !== undefined) {
-              targetNote = event.nextNote;
-            } else {
-              // Fallback if no next note
-              targetNote = event.note - 12;
-            }
-            const targetFreq = 440 * Math.pow(2, (targetNote - 69) / 12);
-            osc.frequency.linearRampToValueAtTime(targetFreq, scheduleTime + glideTime);
-          }
-        }
-      }
-    }
-    
-    // Parse env=@{ a: 5ms, d: 1s, s: 100%, r: 50ms }
-    let a = 0.01;
-    let d = 0.1;
-    let s = 0.5;
-    let r = 0.1;
-    
-    if (event.env) {
-      if (event.env.a) a = this.parseTime(event.env.a);
-      if (event.env.d) d = this.parseTime(event.env.d);
-      if (event.env.s) s = this.parsePercent(event.env.s);
-      if (event.env.r) r = this.parseTime(event.env.r);
-    }
-    
-    const maxVol = (event.velocity / 127) * 0.5; // Scale down to avoid clipping
-    
-    gain.gain.setValueAtTime(0, scheduleTime);
-    gain.gain.linearRampToValueAtTime(maxVol, scheduleTime + a);
-    gain.gain.linearRampToValueAtTime(maxVol * s, scheduleTime + a + d);
-    
-    const stopTime = scheduleTime + event.duration;
-    gain.gain.setValueAtTime(maxVol * s, stopTime);
-    gain.gain.linearRampToValueAtTime(0, stopTime + r);
-    
-    osc.connect(gain);
-    gain.connect(this.context.destination);
-    
-    osc.start(scheduleTime);
-    osc.stop(stopTime + r);
-    
-    this.activeNodes.add(osc);
-    osc.onended = () => {
-      this.activeNodes.delete(osc);
-      osc.disconnect();
-      gain.disconnect();
-    };
-  }
-
-  private scheduleConcrete(event: AudioEvent, scheduleTime: number) {
-    if (!event.src || !this.audioBuffers[event.src]) return;
-    
-    let buffer = this.audioBuffers[event.src];
-    
-    let sliceNum = 1;
-    if (event.modifiers) {
-      for (const mod of event.modifiers) {
-        if (mod.startsWith('slice(')) {
-          const match = mod.match(/slice\((\d+)\)/);
-          if (match) {
-            sliceNum = parseInt(match[1], 10);
-          }
-        }
-      }
-    }
-    
-    // Simple slicing logic: divide buffer into 4 slices
-    const numSlices = 4;
-    const sliceDuration = buffer.duration / numSlices;
-    
-    // Ensure sliceNum is within bounds (1-indexed)
-    const actualSlice = Math.max(1, Math.min(numSlices, sliceNum)) - 1;
-    
-    const offset = actualSlice * sliceDuration;
-    const duration = Math.min(event.duration, sliceDuration);
-    
-    const source = this.context.createBufferSource();
-    source.buffer = buffer;
-    
-    const gain = this.context.createGain();
-    const maxVol = (event.velocity / 127);
-    
-    // Simple envelope to avoid clicks
-    gain.gain.setValueAtTime(0, scheduleTime);
-    gain.gain.linearRampToValueAtTime(maxVol, scheduleTime + 0.01);
-    gain.gain.setValueAtTime(maxVol, scheduleTime + duration - 0.01);
-    gain.gain.linearRampToValueAtTime(0, scheduleTime + duration);
-    
-    source.connect(gain);
-    gain.connect(this.context.destination);
-    
-    source.start(scheduleTime, offset, duration);
-    
-    this.activeNodes.add(source);
-    source.onended = () => {
-      this.activeNodes.delete(source);
-      source.disconnect();
-      gain.disconnect();
-    };
-  }
-
-  private parseTime(val: string): number {
-    if (val.endsWith('ms')) return parseFloat(val) / 1000;
-    if (val.endsWith('s')) return parseFloat(val);
-    return parseFloat(val) / 1000; // Default to ms
-  }
-
-  private parsePercent(val: string): number {
-    if (val.endsWith('%')) return parseFloat(val) / 100;
-    return parseFloat(val);
+    // No-op since we use play() now
   }
 
   public stopAll() {
     for (const key in this.soundfonts) {
       this.soundfonts[key].stop();
     }
-    for (const node of this.activeNodes) {
-      try {
-        node.stop();
-      } catch (e) {}
+    if (this.workletNode) {
+      this.workletNode.port.postMessage({ type: 'STOP' });
     }
-    this.activeNodes.clear();
   }
 }
