@@ -1,10 +1,8 @@
 <div align="center">
-  <img src="https://via.placeholder.com/120x120?text=T" alt="Tenuto Logo" width="120" height="120" style="background:#4f46e5; border-radius: 24px; padding: 16px;" />
   <h1>Tenuto Studio 3.0</h1>
   <p><b>The Comprehensive System of Record for Musical Intent</b></p>
   <p><i>A CRM, but for Music</i></p>
   <br/>
-  <img src="https://via.placeholder.com/800x400?text=Tenuto+Studio+Demo" alt="Tenuto Studio Screenshot" style="max-width:100%; border-radius:12px;" />
 </div>
 
 ---
