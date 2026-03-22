@@ -1,5 +1,6 @@
 use wasm_bindgen::prelude::*;
 use chumsky::Parser;
+use logos::Logos;
 
 pub mod lexer;
 pub mod ast;
@@ -12,6 +13,16 @@ pub mod midi;
 pub mod xml;
 pub mod engrave;
 pub mod decompile;
+
+pub fn compile_to_timeline(source: &str) -> Result<ir::Timeline, String> {
+    let tokens: Vec<_> = lexer::Token::lexer(source).filter_map(Result::ok).collect();
+    let ast = parser::parser().parse(tokens).map_err(|e| format!("{:?}", e))?;
+    
+    let mut preprocessor = preprocessor::Preprocessor::new(std::collections::HashMap::new());
+    let expanded_ast = preprocessor.expand(ast).map_err(|e| e.to_string())?;
+    
+    ir::compile(expanded_ast, false).map_err(|e| e.to_string())
+}
 
 #[wasm_bindgen]
 pub fn compile_tenuto_to_midi(source: &str) -> Result<Vec<u8>, String> {

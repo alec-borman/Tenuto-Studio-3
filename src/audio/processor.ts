@@ -131,39 +131,11 @@ class Voice {
         freq = this.targetFreq;
       }
 
-      let sample = 0;
-
-      if (this.event.style === 'synth') {
-        // Square wave
-        const period = this.sampleRate / freq;
-        sample = (this.phase % period) < (period / 2) ? 1 : -1;
-        this.phase++;
-      } else if (this.event.style === 'concrete' && this.buffer) {
-        if (this.isBus) {
-          // Circular buffer read
-          let intIdx = Math.floor(this.bufferIndex);
-          if (intIdx < 0) intIdx += this.buffer[0].length;
-          intIdx = intIdx % this.buffer[0].length;
-          sample = this.buffer[0][intIdx];
-          this.bufferIndex += this.playbackRate;
-        } else {
-          const intIdx = Math.floor(this.bufferIndex);
-          if (intIdx >= 0 && intIdx < this.buffer[0].length) {
-            sample = this.buffer[0][intIdx];
-            this.bufferIndex += this.playbackRate;
-          } else {
-            this.envState = 'DONE';
-            this.active = false;
-          }
-        }
-      }
-
-      sample *= this.currentVol;
-
       // Panning & Orbit
       let pan = this.event.pan !== undefined ? this.event.pan : 0;
       let distGain = 1;
       let volMultiplier = 1;
+      let pitchBend = 8192; // 14-bit center
 
       if (this.event.orbit) {
         const angleRad = this.event.orbit.angle * Math.PI / 180;
@@ -191,11 +163,54 @@ class Voice {
               pan = val;
             } else if (auto.controller === 'volume') {
               volMultiplier = val;
+            } else if (auto.controller === 'pitchbend') {
+              pitchBend = val;
             }
           }
         }
       }
 
+      // Apply pitchbend to freq
+      if (pitchBend !== 8192) {
+        const bendSemitones = ((pitchBend - 8192) / 8192) * 2; // +/- 2 semitones range
+        freq = freq * Math.pow(2, bendSemitones / 12);
+      }
+
+      let sample = 0;
+
+      if (this.event.style === 'synth') {
+        // Square wave
+        const period = this.sampleRate / freq;
+        sample = (this.phase % period) < (period / 2) ? 1 : -1;
+        this.phase++;
+      } else if (this.event.style === 'concrete' && this.buffer) {
+        // For concrete style, adjust playback rate based on pitchbend
+        let currentPlaybackRate = this.playbackRate;
+        if (pitchBend !== 8192) {
+          const bendSemitones = ((pitchBend - 8192) / 8192) * 2;
+          currentPlaybackRate *= Math.pow(2, bendSemitones / 12);
+        }
+
+        if (this.isBus) {
+          // Circular buffer read
+          let intIdx = Math.floor(this.bufferIndex);
+          if (intIdx < 0) intIdx += this.buffer[0].length;
+          intIdx = intIdx % this.buffer[0].length;
+          sample = this.buffer[0][intIdx];
+          this.bufferIndex += currentPlaybackRate;
+        } else {
+          const intIdx = Math.floor(this.bufferIndex);
+          if (intIdx >= 0 && intIdx < this.buffer[0].length) {
+            sample = this.buffer[0][intIdx];
+            this.bufferIndex += currentPlaybackRate;
+          } else {
+            this.envState = 'DONE';
+            this.active = false;
+          }
+        }
+      }
+
+      sample *= this.currentVol;
       sample *= volMultiplier;
 
       // Equal power panning

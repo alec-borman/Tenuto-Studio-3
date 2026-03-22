@@ -67,11 +67,24 @@ self.onmessage = async (e) => {
             return;
         }
 
+        let processedCode = code;
+        if (!processedCode.includes('tenuto "3.0"')) {
+            processedCode = `tenuto "3.0" {
+  meta @{ title: "Sketch", tempo: 120, time: "4/4" }
+  group "Main" {
+    def v1 "Voice 1" style=standard patch=gm_piano
+  }
+  measure 1 {
+    v1: ${processedCode}
+  }
+}`;
+        }
+
         const compileStartTime = performance.now();
 
         try {
             // 1. Run our TS Parser and Semantic Analyzer
-            const parser = new Parser(code);
+            const parser = new Parser(processedCode);
             let ast = parser.parse();
             
             // Apply tempo override if provided (Sprint 5: Ableton Link)
@@ -126,7 +139,7 @@ self.onmessage = async (e) => {
             
             // Use our new TS-based engraver
             const engraver = new SVGEngraver();
-            const { svg: svgString, layout: scoreLayout } = engraver.render(ast);
+            const { svgs: svgStrings, layout: scoreLayout } = engraver.render(ast, lintDiagnostics);
             
             const musicxmlExporter = new MusicXMLExporter();
             const musicxml = musicxmlExporter.export(unrolledAst);
@@ -138,10 +151,12 @@ self.onmessage = async (e) => {
                 payload: { 
                     midi: midiBytes,
                     audioEvents: audioEvents,
-                    svg: svgString,
+                    svgs: svgStrings,
                     layout: scoreLayout,
                     musicxml: musicxml,
                     ast: unrolledAst,
+                    ir: JSON.stringify(unrolledAst),
+                    rawCode: processedCode,
                     durationMs: compileDuration.toFixed(2),
                     diagnostics: lintDiagnostics
                 } 

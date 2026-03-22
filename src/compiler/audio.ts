@@ -16,7 +16,7 @@ export interface AudioEvent {
   nextNote?: number;
   pan?: number;
   orbit?: { angle: number, dist: number };
-  fx?: { type: string, dryWet: number };
+  fx?: { type: string, dryWet?: number, [key: string]: any };
   controller?: number | string;
   startValue?: number;
   endValue?: number;
@@ -29,7 +29,7 @@ export class AudioEventGenerator {
   private processModifiers(modifiers: string[] | undefined, time: number, duration: number, instrument: string, events: AudioEvent[]) {
     let pan: number | undefined;
     let orbit: { angle: number, dist: number } | undefined;
-    let fx: { type: string, dryWet: number } | undefined;
+    let fx: { type: string, dryWet?: number, [key: string]: any } | undefined;
 
     if (modifiers) {
       for (const mod of modifiers) {
@@ -70,8 +70,22 @@ export class AudioEventGenerator {
           const match = mod.match(/orbit\(([-.\d]+),([-.\d]+)\)/);
           if (match) orbit = { angle: parseFloat(match[1]), dist: parseFloat(match[2]) };
         } else if (mod.startsWith('fx(')) {
-          const match = mod.match(/fx\("([^"]+)",([-.\d]+)\)/);
-          if (match) fx = { type: match[1], dryWet: parseFloat(match[2]) };
+          const simpleMatch = mod.match(/fx\("([^"]+)",([-.\d]+)\)/);
+          if (simpleMatch) {
+            fx = { type: simpleMatch[1], dryWet: parseFloat(simpleMatch[2]) };
+          } else {
+            const complexMatch = mod.match(/fx\("([^"]+)",@\{([^}]+)\}\)/);
+            if (complexMatch) {
+              const type = complexMatch[1];
+              const paramsStr = complexMatch[2];
+              const params: any = {};
+              paramsStr.split(',').forEach(p => {
+                const [k, v] = p.split(':');
+                if (k && v) params[k.trim()] = v.trim();
+              });
+              fx = { type, dryWet: 1.0, ...params };
+            }
+          }
         } else if (mod.startsWith('cc(')) {
           const match = mod.match(/cc\((\d+),\[(\d+),(\d+)\],"([^"]+)"\)/);
           if (match) {
@@ -84,6 +98,41 @@ export class AudioEventGenerator {
               startValue: parseInt(match[2], 10),
               endValue: parseInt(match[3], 10),
               curve: match[4]
+            });
+          }
+        } else if (mod.startsWith('bu(')) {
+          const match = mod.match(/bu\(([-.\d]+)\)/);
+          if (match) {
+            const semitones = parseFloat(match[1]);
+            // Map semitones to 14-bit pitch bend (assuming 2 semitones = 8191)
+            // Center is 8192. Max is 16383 (+2 semitones). Min is 0 (-2 semitones).
+            // So 1 semitone = 4096.
+            const endValue = Math.min(16383, Math.max(0, 8192 + semitones * 4096));
+            events.push({
+              type: 'automation',
+              time,
+              duration,
+              instrument,
+              controller: 'pitchbend',
+              startValue: 8192,
+              endValue,
+              curve: 'linear'
+            });
+          }
+        } else if (mod.startsWith('bd(')) {
+          const match = mod.match(/bd\(([-.\d]+)\)/);
+          if (match) {
+            const semitones = parseFloat(match[1]);
+            const endValue = Math.min(16383, Math.max(0, 8192 - semitones * 4096));
+            events.push({
+              type: 'automation',
+              time,
+              duration,
+              instrument,
+              controller: 'pitchbend',
+              startValue: 8192,
+              endValue,
+              curve: 'linear'
             });
           }
         } else if (mod === 'crescendo') {
@@ -139,7 +188,7 @@ export class AudioEventGenerator {
               
               if (event.type === 'note') {
                 if (event.pitch !== 'r') {
-                  const midiNote = this.pitchToMidi(event.pitch, event.octave, event.accidental);
+                  const midiNote = this.resolvePitch(event.pitch, event.octave, event.accidental, def);
                   let velocity = 80;
                   if (event.articulation === 'f') velocity = 100;
                   if (event.articulation === 'p') velocity = 60;
@@ -168,7 +217,7 @@ export class AudioEventGenerator {
               } else if (event.type === 'chord') {
                 for (const note of event.notes) {
                   if (note.pitch !== 'r') {
-                    const midiNote = this.pitchToMidi(note.pitch, note.octave, note.accidental);
+                    const midiNote = this.resolvePitch(note.pitch, note.octave, note.accidental, def);
                     const { pan, orbit, fx } = this.processModifiers(event.modifiers, voiceTime, durationInSeconds, def.patch, events);
 
                     events.push({
@@ -200,7 +249,7 @@ export class AudioEventGenerator {
                   const eDurQuarters = this.getDurationInQuarters(e) * multiplier;
                   const eDurSeconds = eDurQuarters * secondsPerQuarter;
                   if (e.type === 'note' && e.pitch !== 'r') {
-                    const midiNote = this.pitchToMidi(e.pitch, e.octave, e.accidental);
+                    const midiNote = this.resolvePitch(e.pitch, e.octave, e.accidental, def);
                     const { pan, orbit, fx } = this.processModifiers(e.modifiers, tupletTime, eDurSeconds, def.patch, events);
 
                     events.push({
@@ -294,7 +343,29 @@ export class AudioEventGenerator {
     return quarters;
   }
 
-  private pitchToMidi(pitch: string, octave: number, accidental?: string): number {
+  private resolvePitch(pitch: string, octave: number, accidental: string | undefined, def: any): number {
+    if (def.style === 'tab') {
+      const parts = pitch.split('-');
+      if (parts.length === 2) {
+        const fret = parseInt(parts[0], 10);
+        const stringNum = parseInt(parts[1], 10);
+        const tuning = def.tuning || [40, 45, 50, 55, 59, 64]; // EADGBE
+        // strings are 1-indexed, usually from highest to lowest or lowest to highest?
+        // standard guitar string 1 is high E (64), string 6 is low E (40)
+        // so tuning[6 - stringNum]
+        const stringIndex = tuning.length - stringNum;
+        if (stringIndex >= 0 && stringIndex < tuning.length) {
+          return tuning[stringIndex] + fret;
+        }
+      }
+      return 60; // fallback
+    } else if (def.style === 'grid') {
+      if (def.map && def.map[pitch] !== undefined) {
+        return def.map[pitch];
+      }
+      return 36; // fallback to kick
+    }
+    
     const pitchClasses: Record<string, number> = {
       'c': 0, 'd': 2, 'e': 4, 'f': 5, 'g': 7, 'a': 9, 'b': 11
     };

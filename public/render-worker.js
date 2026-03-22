@@ -34,6 +34,12 @@ let particles = []; // { x, y, vx, vy, life, maxLife, scale }
 
 let pendingNotes = null;
 
+let isLink = false;
+let linkBeat = 0;
+let linkTempo = 120;
+let linkPhase = 0;
+let startLinkBeat = 0;
+
 self.onmessage = (e) => {
   const { type } = e.data;
 
@@ -65,6 +71,7 @@ self.onmessage = (e) => {
     lastVisualTime = 0.0;
     lastSyncPerfTime = 0.0;
     lastSyncVisualTime = 0.0;
+    startLinkBeat = e.data.linkBeat || 0;
     particles = [];
   } else if (type === "STOP_PLAYBACK") {
     isPlaying = false;
@@ -75,7 +82,15 @@ self.onmessage = (e) => {
     particles = [];
   } else if (type === "SYNC_TIME") {
     if (isPlaying) {
-      lastSyncVisualTime = Math.max(0, e.data.currentTime - e.data.startTime);
+      isLink = e.data.isLink;
+      if (isLink) {
+        linkBeat = e.data.linkBeat;
+        linkTempo = e.data.linkTempo;
+        linkPhase = e.data.linkPhase;
+        lastSyncVisualTime = Math.max(0, (linkBeat - startLinkBeat) * (60.0 / linkTempo));
+      } else {
+        lastSyncVisualTime = Math.max(0, e.data.currentTime - e.data.startTime);
+      }
       lastSyncPerfTime = performance.now();
     }
   }

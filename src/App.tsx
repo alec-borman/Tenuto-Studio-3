@@ -4,7 +4,7 @@ import { Play, Square, Code, FileCode, Upload, Link as LinkIcon, Cpu, Globe } fr
 import * as Tone from 'tone';
 import { registerTenutoLanguage } from './editor/tenutoLanguage';
 import { AudioEngine } from './audio/engine';
-import { useTenutoDaemon } from './hooks/useTenutoDaemon';
+import { useTenutoDaemon, LinkState } from './hooks/useTenutoDaemon';
 
 import { Diagnostic } from './compiler/diagnostics';
 
@@ -23,7 +23,7 @@ const DEFAULT_CODE = `tenuto "3.0" {
 
 export default function App() {
   const [code, setCode] = useState(DEFAULT_CODE);
-  const [svgScore, setSvgScore] = useState<string | null>(null);
+  const [svgPages, setSvgPages] = useState<string[]>([]);
   const [musicXml, setMusicXml] = useState<string | null>(null);
   const [status, setStatus] = useState('Booting compiler...');
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
@@ -37,6 +37,8 @@ export default function App() {
   const workerRef = useRef<Worker | null>(null);
   const renderWorkerRef = useRef<Worker | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const playheadRef = useRef<HTMLDivElement>(null);
+  const beatLabelRef = useRef<HTMLDivElement>(null);
   
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
@@ -44,6 +46,8 @@ export default function App() {
   // Audio state
   const audioEngineRef = useRef<AudioEngine | null>(null);
   const audioEventsRef = useRef<any[]>([]);
+  const irRef = useRef<string | null>(null);
+  const rawCodeRef = useRef<string | null>(null);
   const playbackStateRef = useRef<{
     isPlaying: boolean;
     startTime: number;
@@ -118,9 +122,11 @@ export default function App() {
         }
       } else if (type === 'SUCCESS') {
         setStatus(`Compiled successfully in ${payload.durationMs}ms`);
-        setSvgScore(payload.svg);
+        setSvgPages(payload.svgs || []);
         setMusicXml(payload.musicxml);
         setDiagnostics(payload.diagnostics || []);
+        irRef.current = payload.ir;
+        rawCodeRef.current = payload.rawCode;
         
         // Parse the compiled MIDI bytes and send to WebGL renderer
         if (renderWorkerRef.current && payload.midi) {
@@ -149,7 +155,7 @@ export default function App() {
               
               if (payload.audioEvents && audioEngineRef.current) {
                 audioEventsRef.current = payload.audioEvents;
-                await audioEngineRef.current.loadInstruments(payload.audioEvents);
+                await audioEngineRef.current.loadInstruments(payload.audioEvents, payload.ast.defs);
               }
               
               renderWorkerRef.current?.postMessage({ type: 'UPDATE_NOTES', notes });
@@ -273,15 +279,71 @@ export default function App() {
     }
   };
 
+  const linkStateRef = useRef<LinkState | null>(null);
+  useEffect(() => {
+    linkStateRef.current = linkState;
+  }, [linkState]);
+
   const syncTimeRef = useRef<number | null>(null);
 
   const syncTime = () => {
     if (playbackStateRef.current.isPlaying) {
       const context = Tone.getContext().rawContext as AudioContext;
+      
+      // Sprint 14: Link-Locked Visual Playhead
+      let currentTime = context.currentTime;
+      let startTime = playbackStateRef.current.startTime;
+      let isLink = false;
+      let linkPhase = 0;
+      let linkBeat = 0;
+      let linkTempo = 120;
+      
+      if (isLinkEnabled && linkStateRef.current) {
+        isLink = true;
+        linkPhase = linkStateRef.current.phase;
+        linkBeat = linkStateRef.current.beat;
+        linkTempo = linkStateRef.current.tempo;
+      }
+      
+      if (playheadRef.current) {
+        if (isLink) {
+          const beatInBar = linkPhase % 4.0;
+          if (beatLabelRef.current) {
+            beatLabelRef.current.textContent = `${Math.floor(beatInBar) + 1}.${Math.floor((beatInBar % 1) * 4) + 1}`;
+          }
+          if (beatInBar < 0.1) {
+            playheadRef.current.style.boxShadow = '0 0 16px rgba(16,185,129,1)';
+            playheadRef.current.style.backgroundColor = '#10b981';
+            playheadRef.current.style.width = '2px';
+          } else if (beatInBar % 1.0 < 0.1) {
+            playheadRef.current.style.boxShadow = '0 0 8px rgba(16,185,129,0.8)';
+            playheadRef.current.style.backgroundColor = '#34d399';
+            playheadRef.current.style.width = '1px';
+          } else {
+            playheadRef.current.style.boxShadow = 'none';
+            playheadRef.current.style.backgroundColor = '#059669';
+            playheadRef.current.style.width = '1px';
+          }
+        } else {
+          if (beatLabelRef.current) {
+            const localBeat = Math.max(0, (currentTime - startTime) * (linkTempo / 60.0));
+            const beatInBar = localBeat % 4.0;
+            beatLabelRef.current.textContent = `${Math.floor(beatInBar) + 1}.${Math.floor((beatInBar % 1) * 4) + 1}`;
+          }
+          playheadRef.current.style.boxShadow = '0 0 8px rgba(16,185,129,0.8)';
+          playheadRef.current.style.backgroundColor = '#10b981';
+          playheadRef.current.style.width = '1px';
+        }
+      }
+
       renderWorkerRef.current?.postMessage({
         type: 'SYNC_TIME',
-        currentTime: context.currentTime,
-        startTime: playbackStateRef.current.startTime
+        currentTime,
+        startTime,
+        isLink,
+        linkPhase,
+        linkBeat,
+        linkTempo
       });
       syncTimeRef.current = requestAnimationFrame(syncTime);
     }
@@ -319,7 +381,8 @@ export default function App() {
       // Send absolute time to WebGL worker for synchronization
       renderWorkerRef.current?.postMessage({ 
         type: 'START_PLAYBACK', 
-        startTime: playbackStateRef.current.startTime
+        startTime: playbackStateRef.current.startTime,
+        linkBeat: linkStateRef.current?.beat || 0
       });
 
       // Sprint 5: Execution Hand-off (Remote OSC)
@@ -327,6 +390,8 @@ export default function App() {
         sendMessage({
           type: 'DELEGATE_TIMELINE',
           events: audioEventsRef.current,
+          ir: irRef.current,
+          rawCode: rawCodeRef.current,
           startTime: startTime
         });
       } else if (audioEngineRef.current) {
@@ -541,12 +606,15 @@ export default function App() {
                 Download MusicXML
               </button>
             </div>
-            <div className="flex-1 overflow-auto p-8 flex justify-center bg-white shadow-inner">
-              {svgScore ? (
-                <div 
-                  className="w-full max-w-2xl bg-white shadow-lg border border-zinc-200"
-                  dangerouslySetInnerHTML={{ __html: svgScore }}
-                />
+            <div className="flex-1 overflow-auto p-8 flex flex-col items-center gap-8 bg-zinc-100 shadow-inner">
+              {svgPages.length > 0 ? (
+                svgPages.map((pageSvg, idx) => (
+                  <div 
+                    key={idx}
+                    className="w-full max-w-2xl bg-white shadow-lg border border-zinc-200"
+                    dangerouslySetInnerHTML={{ __html: pageSvg }}
+                  />
+                ))
               ) : (
                 <div className="flex items-center justify-center h-full text-zinc-400">
                   No visual score generated
@@ -564,7 +632,10 @@ export default function App() {
             <div className="flex-1 relative" ref={canvasContainerRef}>
               {/* Playhead overlay */}
               {isPlaying && (
-                <div className="absolute top-0 bottom-0 w-px bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] z-10" style={{ left: '15%' }}></div>
+                <div ref={playheadRef} className="absolute top-0 bottom-0 w-px bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] z-10" style={{ left: '15%' }}>
+                  <div ref={beatLabelRef} className="absolute top-0 -translate-x-1/2 bg-emerald-500 text-zinc-950 text-[10px] font-bold px-1 rounded-b">
+                  </div>
+                </div>
               )}
             </div>
           </div>

@@ -111,7 +111,7 @@ export class Lexer {
       if (this.peek() === 'm' && this.input[this.pos + 1] === 's') {
         value += this.advance();
         value += this.advance();
-      } else if (this.peek() === 's') {
+      } else if (this.peek() === 's' && !/[a-zA-Z]/.test(this.input[this.pos + 1] || '')) {
         value += this.advance();
       } else if (this.peek() === 't' && this.input.slice(this.pos, this.pos + 5) === 'ticks') {
         for (let i = 0; i < 5; i++) value += this.advance();
@@ -127,7 +127,7 @@ export class Lexer {
       while (this.pos < this.input.length && /[a-zA-Z0-9_+\-#^.]/.test(this.peek())) {
         value += this.advance();
       }
-      const keywords = ['tenuto', 'meta', 'def', 'measure', 'group', 'import'];
+      const keywords = ['tenuto', 'meta', 'def', 'measure', 'group', 'import', 'repeat'];
       if (keywords.includes(value)) {
         return { type: TokenType.Keyword, value, line: startLine, column: startCol };
       }

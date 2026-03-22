@@ -9,3 +9,9 @@ tokio = { version = "1.28", features = ["full"] }
 rosc = "0.10"
 rusty_link = "0.2"
 tenutoc = { path = "../tenutoc" }
+tokio-tungstenite = "0.18"
+futures-util = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+logos = "0.13"
+chumsky = "0.9"

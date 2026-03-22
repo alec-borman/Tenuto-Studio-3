@@ -41,7 +41,7 @@ describe('EngraverLayout', () => {
     const layout = new EngraverLayout();
     const scoreLayout = layout.layout(ast);
     
-    const measure = scoreLayout.systems[0].measures[0];
+    const measure = scoreLayout.pages[0].systems[0].measures[0];
     const v1Events = measure.events.find(e => e.voiceId === 'v1')?.positionedEvents;
     const v2Events = measure.events.find(e => e.voiceId === 'v2')?.positionedEvents;
 

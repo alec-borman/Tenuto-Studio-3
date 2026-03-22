@@ -7,28 +7,55 @@
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio::net::UdpSocket;
+use tokio::net::{TcpListener, UdpSocket};
 use rusty_link::Link;
 use tenutoc::ir::Timeline;
+use futures_util::{StreamExt, SinkExt};
+use tokio_tungstenite::accept_async;
+use tokio_tungstenite::tungstenite::Message;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 mod osc_emitter;
 mod link_sync;
 mod scheduler;
 
+#[derive(Deserialize)]
+struct WsMessage {
+    #[serde(rename = "type")]
+    msg_type: String,
+    ir: Option<String>,
+    #[serde(rename = "rawCode")]
+    raw_code: Option<String>,
+    #[serde(default)]
+    events: Vec<Value>,
+    start_time: Option<f64>,
+}
+
+#[derive(Serialize)]
+struct LinkStateMsg {
+    #[serde(rename = "type")]
+    msg_type: String,
+    tempo: f64,
+    phase: f64,
+    beat: f64,
+}
+
+#[derive(Serialize)]
+struct DownbeatSyncMsg {
+    #[serde(rename = "type")]
+    msg_type: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Booting tenutod (Tenuto Execution & Delegation Protocol v3.0.1)");
 
-    // 1. Initialize Ableton Link Phase Synchronization (TEDP 3.1)
-    // The daemon decouples its internal logical tempo from the physical clock.
     let mut link = Link::new(120.0);
     link.enable(true);
     let link_state = Arc::new(Mutex::new(link));
     println!("🔗 Ableton Link Enabled. Awaiting peers...");
 
-    // 2. Initialize OSC UDP Sockets (TEDP 2.0)
-    // SuperDirt (TidalCycles) default port is 57120
-    // ChucK default OSC port is typically 6449
     let superdirt_socket = Arc::new(UdpSocket::bind("0.0.0.0:0").await?);
     superdirt_socket.connect("127.0.0.1:57120").await?;
     
@@ -37,28 +64,124 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("📡 OSC Emitters Bound (SuperDirt: 57120, ChucK: 6449)");
 
-    // 3. Load the Tenuto IR (Mocking a compiled timeline for the daemon loop)
-    // In a real scenario, this would be fed via IPC or a file watcher from `tenutoc`.
-    let dummy_timeline = Timeline {
-        title: "Live Algorave Session".into(),
-        tempo: 120,
-        ppq: 1920,
-        auto_pad_voices: true,
-        swing: std::collections::HashMap::new(),
-        humanize: 0.0,
-        tracks: std::collections::HashMap::new(),
-    };
+    let listener = TcpListener::bind("127.0.0.1:8080").await?;
+    println!("🔌 WebSocket Server listening on ws://127.0.0.1:8080");
 
-    // 4. Start the Deterministic Look-Ahead Scheduler (TEDP 2.1)
-    // The scheduler runs in a high-priority Tokio task, calculating the rational grid
-    // against the Link phase and dispatching OSC bundles 200ms in advance.
-    println!("⏱️ Starting Rational Temporal Engine...");
-    scheduler::run_lookahead_loop(
-        dummy_timeline, 
-        link_state, 
-        superdirt_socket, 
-        chuck_socket
-    ).await?;
+    let current_scheduler_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>> = Arc::new(Mutex::new(None));
+
+    while let Ok((stream, _)) = listener.accept().await {
+        let link_state_clone = link_state.clone();
+        let superdirt_socket_clone = superdirt_socket.clone();
+        let chuck_socket_clone = chuck_socket.clone();
+        let scheduler_task_clone = current_scheduler_task.clone();
+
+        tokio::spawn(async move {
+            let mut ws_stream = match accept_async(stream).await {
+                Ok(ws) => ws,
+                Err(e) => {
+                    eprintln!("WebSocket connection error: {}", e);
+                    return;
+                }
+            };
+
+            println!("✅ Client connected");
+
+            let mut link_interval = tokio::time::interval(std::time::Duration::from_millis(50));
+            let mut last_phase = 0.0;
+            
+            loop {
+                tokio::select! {
+                    _ = link_interval.tick() => {
+                        let link_guard = link_state_clone.lock().await;
+                        let state = link_guard.capture_audio_session_state();
+                        let time = link_guard.clock().micros();
+                        let phase = state.phase_at_time(time, 4.0);
+                        let beat = state.beat_at_time(time, 4.0);
+                        
+                        let msg = LinkStateMsg {
+                            msg_type: "LINK_STATE".to_string(),
+                            tempo: state.tempo(),
+                            phase,
+                            beat,
+                        };
+                        if let Ok(json) = serde_json::to_string(&msg) {
+                            let _ = ws_stream.send(Message::Text(json)).await;
+                        }
+                        
+                        if last_phase > 3.5 && phase < 0.5 {
+                            let sync_msg = DownbeatSyncMsg {
+                                msg_type: "DOWNBEAT_SYNC".to_string(),
+                            };
+                            if let Ok(json) = serde_json::to_string(&sync_msg) {
+                                let _ = ws_stream.send(Message::Text(json)).await;
+                            }
+                        }
+                        last_phase = phase;
+                    }
+                    msg = ws_stream.next() => {
+                        match msg {
+                            Some(Ok(Message::Text(text))) => {
+                                if let Ok(parsed) = serde_json::from_str::<WsMessage>(&text) {
+                                    if parsed.msg_type == "DELEGATE_TIMELINE" {
+                                        let mut timeline_opt = None;
+                                        
+                                        if let Some(raw_code) = parsed.raw_code {
+                                            use chumsky::Parser;
+                                            use logos::Logos;
+                                            
+                                            let tokens: Vec<_> = tenutoc::lexer::Token::lexer(&raw_code).filter_map(Result::ok).collect();
+                                            if let Ok(ast) = tenutoc::parser::parser().parse(tokens) {
+                                                let mut preprocessor = tenutoc::preprocessor::Preprocessor::new(std::collections::HashMap::new());
+                                                if let Ok(expanded_ast) = preprocessor.expand(ast) {
+                                                    if let Ok(timeline) = tenutoc::ir::compile(expanded_ast, false) {
+                                                        timeline_opt = Some(timeline);
+                                                        println!("📥 Compiled new Timeline from rawCode via WebSocket");
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        
+                                        if timeline_opt.is_none() {
+                                            if let Some(ir_json) = parsed.ir {
+                                                if let Ok(timeline) = serde_json::from_str::<Timeline>(&ir_json) {
+                                                    timeline_opt = Some(timeline);
+                                                    println!("📥 Received new Timeline IR via WebSocket");
+                                                } else {
+                                                    eprintln!("❌ Failed to deserialize Timeline IR");
+                                                }
+                                            }
+                                        }
+
+                                        if let Some(timeline) = timeline_opt {
+                                            let mut task_guard = scheduler_task_clone.lock().await;
+                                            if let Some(task) = task_guard.take() {
+                                                task.abort();
+                                            }
+                                            
+                                            let ls = link_state_clone.clone();
+                                            let sd = superdirt_socket_clone.clone();
+                                            let ch = chuck_socket_clone.clone();
+                                            
+                                            *task_guard = Some(tokio::spawn(async move {
+                                                if let Err(e) = scheduler::run_lookahead_loop(timeline, ls, sd, ch).await {
+                                                    eprintln!("Scheduler error: {}", e);
+                                                }
+                                            }));
+                                        }
+                                    }
+                                }
+                            }
+                            Some(Ok(Message::Close(_))) | None => {
+                                println!("❌ Client disconnected");
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        });
+    }
 
     Ok(())
 }

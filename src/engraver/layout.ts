@@ -5,6 +5,7 @@ export interface LayoutOptions {
   spacingConstant: number; // C in C * d^k
   spacingExponent: number; // k in C * d^k
   measurePadding: number;
+  pageHeight: number;
 }
 
 export const DEFAULT_LAYOUT_OPTIONS: LayoutOptions = {
@@ -12,6 +13,7 @@ export const DEFAULT_LAYOUT_OPTIONS: LayoutOptions = {
   spacingConstant: 40,
   spacingExponent: 0.6,
   measurePadding: 20,
+  pageHeight: 2970,
 };
 
 export interface PositionedEvent {
@@ -37,8 +39,14 @@ export interface SystemLayout {
   measures: MeasureLayout[];
 }
 
-export interface ScoreLayout {
+export interface PageLayout {
   systems: SystemLayout[];
+  width: number;
+  height: number;
+}
+
+export interface ScoreLayout {
+  pages: PageLayout[];
   width: number;
   height: number;
 }
@@ -144,6 +152,22 @@ export class EngraverLayout {
           rod = 12; // Grace notes can be tighter
         }
 
+        // Task 1A: Visual Spanners
+        // Check if any event at this position has a lyric
+        const eventsAtPos = eventMap.map(v => v.positionedEvents.find(pe => pe.logicalTime === sortedPositions[i])).filter(pe => pe !== undefined) as PositionedEvent[];
+        for (const pe of eventsAtPos) {
+          if (pe.event.type === 'note' || pe.event.type === 'chord') {
+            if (pe.event.lyric) {
+              // Base width for the lyric text (approx 6px per char)
+              let lyricWidth = pe.event.lyric.length * 6;
+              if (pe.event.lyric.endsWith('-') || pe.event.lyric.endsWith('_')) {
+                lyricWidth += 20; // Extra space for the spanner
+              }
+              rod = Math.max(rod, lyricWidth);
+            }
+          }
+        }
+
         // Constraint solver pass: actual distance is spring length, but never less than rod length
         const space = Math.max(spring, rod);
         
@@ -206,7 +230,7 @@ export class EngraverLayout {
 
   private breakIntoSystems(measures: MeasureLayout[]): ScoreLayout {
     const n = measures.length;
-    if (n === 0) return { systems: [], width: this.options.systemWidth, height: 0 };
+    if (n === 0) return { pages: [], width: this.options.systemWidth, height: 0 };
 
     const dp = new Array(n + 1).fill(Infinity);
     const parent = new Array(n + 1).fill(-1);
@@ -258,9 +282,12 @@ export class EngraverLayout {
     breaks.push(0);
     breaks.reverse();
 
-    const systems: SystemLayout[] = [];
+    const pages: PageLayout[] = [];
+    let currentSystems: SystemLayout[] = [];
     let currentY = 50;
     const systemHeight = 150;
+    const pageMarginTop = 50;
+    const pageMarginBottom = 50;
 
     for (let k = 0; k < breaks.length - 1; k++) {
       const start = breaks[k];
@@ -273,14 +300,32 @@ export class EngraverLayout {
       const isLast = (end === n);
       this.justifySystem(systemMeasures, totalIdealWidth, isLast);
       
-      systems.push({ y: currentY, height: systemHeight, measures: systemMeasures });
+      if (currentY + systemHeight + pageMarginBottom > this.options.pageHeight && currentSystems.length > 0) {
+        pages.push({
+          systems: currentSystems,
+          width: this.options.systemWidth,
+          height: this.options.pageHeight
+        });
+        currentSystems = [];
+        currentY = pageMarginTop;
+      }
+
+      currentSystems.push({ y: currentY, height: systemHeight, measures: systemMeasures });
       currentY += systemHeight + 50;
     }
 
+    if (currentSystems.length > 0) {
+      pages.push({
+        systems: currentSystems,
+        width: this.options.systemWidth,
+        height: Math.max(currentY, this.options.pageHeight)
+      });
+    }
+
     return {
-      systems,
+      pages,
       width: this.options.systemWidth,
-      height: currentY
+      height: pages.length * this.options.pageHeight
     };
   }
 

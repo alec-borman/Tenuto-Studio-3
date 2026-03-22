@@ -5,6 +5,7 @@ export type ConnectionStatus = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED';
 export interface LinkState {
   tempo: number;
   phase: number;
+  beat: number;
 }
 
 export interface DaemonMessage {
@@ -41,7 +42,7 @@ export const useTenutoDaemon = (url: string = 'ws://127.0.0.1:8080') => {
       try {
         const msg: DaemonMessage = JSON.parse(event.data);
         if (msg.type === 'LINK_STATE') {
-          setLinkState({ tempo: msg.tempo, phase: msg.phase });
+          setLinkState({ tempo: msg.tempo, phase: msg.phase, beat: msg.beat });
         }
         onMessageCallbacks.current.forEach(cb => cb(msg));
       } catch (err) {

@@ -25,6 +25,135 @@ fn unswing_tick(tick: u32, tpb: u32, is_16th: bool) -> u32 {
     b * period + new_r
 }
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+fn get_token_duration(token: &str, tpb: u32, macros: &[Vec<String>]) -> u32 {
+    let ticks_per_16th = tpb / 4;
+    
+    if token.starts_with("$macro_") {
+        if let Some(idx) = token.find('_') {
+            let num_str = token[idx+1..].chars().take_while(|c| c.is_digit(10)).collect::<String>();
+            if let Ok(m_idx) = num_str.parse::<usize>() {
+                if let Some(mac) = macros.get(m_idx) {
+                    let mut sum = 0;
+                    for t in mac {
+                        sum += get_token_duration(t, tpb, macros);
+                    }
+                    return sum;
+                }
+            }
+        }
+    }
+    
+    if let Some(idx) = token.find('(') {
+        if let Some(idx2) = token.find(')') {
+            let inner = &token[idx+1..idx2];
+            let parts: Vec<&str> = inner.split(',').collect();
+            if parts.len() == 2 {
+                if let Ok(n) = parts[1].parse::<u32>() {
+                    return n * ticks_per_16th;
+                }
+            }
+        }
+    }
+    
+    let parts: Vec<&str> = token.split(':').collect();
+    if parts.len() == 2 {
+        let dur_part = parts[1];
+        if dur_part.contains('*') {
+            let sub_parts: Vec<&str> = dur_part.split('*').collect();
+            let base = sub_parts[0].parse::<u32>().unwrap_or(16);
+            let mult = sub_parts[1].parse::<u32>().unwrap_or(1);
+            return (16 / base) * ticks_per_16th * mult;
+        } else {
+            let base = dur_part.parse::<u32>().unwrap_or(16);
+            return (16 / base) * ticks_per_16th;
+        }
+    }
+    ticks_per_16th
+}
+
+fn group_into_measures(tokens: Vec<String>, tpb: u32, ts_num: u32, ts_den: u32, macros: &[Vec<String>]) -> Vec<Vec<String>> {
+    let ticks_per_measure = ts_num * tpb * 4 / ts_den;
+    let mut measures = Vec::new();
+    let mut current_measure = Vec::new();
+    let mut current_ticks = 0;
+    
+    for token in tokens {
+        let dur = get_token_duration(&token, tpb, macros);
+        current_measure.push(token);
+        current_ticks += dur;
+        if current_ticks >= ticks_per_measure {
+            measures.push(current_measure);
+            current_measure = Vec::new();
+            current_ticks = 0;
+        }
+    }
+    if !current_measure.is_empty() {
+        measures.push(current_measure);
+    }
+    measures
+}
+
+fn hash_measure(measure: &[String]) -> u64 {
+    let mut s = DefaultHasher::new();
+    let (norm, _) = normalize_sequence(measure);
+    norm.join(" ").hash(&mut s);
+    s.finish()
+}
+
+fn collapse_repeats(measures: Vec<Vec<String>>) -> Vec<String> {
+    let mut hashes = Vec::new();
+    let mut offsets = Vec::new();
+    for m in &measures {
+        let mut s = DefaultHasher::new();
+        let (norm, offset) = normalize_sequence(m);
+        norm.join(" ").hash(&mut s);
+        hashes.push(s.finish());
+        offsets.push(offset);
+    }
+    
+    let mut result = Vec::new();
+    let mut i = 0;
+    while i < measures.len() {
+        let mut best_len = 0;
+        let mut best_repeats = 1;
+        
+        for len in 1..=(measures.len() - i) / 2 {
+            let block_hash = &hashes[i..i+len];
+            let block_offset = &offsets[i..i+len];
+            let mut repeats = 1;
+            let mut j = i + len;
+            while j + len <= measures.len() {
+                if &hashes[j..j+len] == block_hash && &offsets[j..j+len] == block_offset {
+                    repeats += 1;
+                    j += len;
+                } else {
+                    break;
+                }
+            }
+            if repeats > 1 && len * repeats > best_len * best_repeats {
+                best_len = len;
+                best_repeats = repeats;
+            }
+        }
+        
+        if best_repeats > 1 {
+            let mut block_tokens = Vec::new();
+            for m in &measures[i..i+best_len] {
+                block_tokens.extend(m.clone());
+            }
+            result.push(format!("repeat {} {{ {} }}", best_repeats, block_tokens.join(" ")));
+            i += best_len * best_repeats;
+        } else {
+            result.extend(measures[i].clone());
+            i += 1;
+        }
+    }
+    result
+}
+
 pub fn decompile_midi(midi_bytes: &[u8]) -> Result<String, String> {
     let smf = Smf::parse(midi_bytes).map_err(|e| format!("Failed to parse MIDI: {}", e))?;
     
@@ -35,6 +164,8 @@ pub fn decompile_midi(midi_bytes: &[u8]) -> Result<String, String> {
 
     let mut tempo = 120;
     let mut time_sig = "4/4".to_string();
+    let mut ts_num = 4;
+    let mut ts_den = 4;
 
     for track in &smf.tracks {
         for event in track {
@@ -44,6 +175,8 @@ pub fn decompile_midi(midi_bytes: &[u8]) -> Result<String, String> {
                 }
                 TrackEventKind::Meta(MetaMessage::TimeSignature(num, den, _, _)) => {
                     time_sig = format!("{}/{}", num, 2_u32.pow(den as u32));
+                    ts_num = num as u32;
+                    ts_den = 2_u32.pow(den as u32);
                 }
                 _ => {}
             }
@@ -184,7 +317,11 @@ pub fn decompile_midi(midi_bytes: &[u8]) -> Result<String, String> {
         // 3. LZ77 Macro Extraction
         let (compressed_tokens, _) = extract_lz77_macros(euclidean_tokens, &mut all_macros);
         
-        let track_str = format!("    {}: {} |", track_id, compressed_tokens.join(" "));
+        // 4. Group into measures and collapse repeats
+        let measures = group_into_measures(compressed_tokens, ticks_per_beat, ts_num, ts_den, &all_macros);
+        let final_tokens = collapse_repeats(measures);
+        
+        let track_str = format!("    {}: {} |", track_id, final_tokens.join(" "));
         track_strings.push(track_str);
     }
 

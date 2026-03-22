@@ -30,17 +30,25 @@ export class AudioEngine {
     this.context = Tone.getContext().rawContext as AudioContext;
   }
 
-  public async init() {
+  public async init(instruments: string[] = []) {
     if (this.isInitialized) return;
     
     try {
       await this.context.audioWorklet.addModule(processorUrl);
       
-      // We request 2 outputs: [0] is dry, [1] is wet
+      const numOutputs = Math.max(2, instruments.length);
+      const outputChannelCount = Array(numOutputs).fill(2);
+      
       this.workletNode = new AudioWorkletNode(this.context, 'tenuto-processor', {
         numberOfInputs: 1,
-        numberOfOutputs: 2,
-        outputChannelCount: [2, 2]
+        numberOfOutputs: numOutputs,
+        outputChannelCount
+      });
+
+      // Send instrument mapping to worklet
+      this.workletNode.port.postMessage({
+        type: 'SET_INSTRUMENTS',
+        instruments
       });
 
       this.convolver = this.context.createConvolver();
@@ -50,16 +58,9 @@ export class AudioEngine {
       // Load a simple impulse response for reverb
       this.generateSyntheticIR();
 
-      // Route dry signal
-      this.workletNode.connect(this.dryGain, 0);
-      this.dryGain.connect(this.context.destination);
-
-      // Route wet signal through convolver
-      this.workletNode.connect(this.convolver, 1);
-      this.convolver.connect(this.wetGain);
-      this.wetGain.connect(this.context.destination);
-
-      // Listen for messages from worklet (e.g., to play soundfonts)
+      // We will route outputs dynamically in loadInstruments
+      
+      // Listen for messages from worklet
       this.workletNode.port.onmessage = (e) => {
         if (e.data.type === 'PLAY_SOUNDFONT') {
           this.scheduleSoundfont(e.data.event);
@@ -89,27 +90,76 @@ export class AudioEngine {
     this.convolver.buffer = impulse;
   }
 
-  public async loadInstruments(events: AudioEvent[]) {
-    await this.init();
+  public async loadInstruments(events: AudioEvent[], defs?: any[]) {
+    const instruments = Array.from(new Set(events.map(e => e.instrument)));
+    await this.init(instruments);
     const promises: Promise<void>[] = [];
     
-    for (const event of events) {
-      if (!this.trackBuses[event.instrument]) {
+    for (let i = 0; i < instruments.length; i++) {
+      const instrument = instruments[i];
+      if (!this.trackBuses[instrument]) {
         const bus = this.context.createGain();
-        this.trackBuses[event.instrument] = bus;
-        // Connect bus to worklet input so it can be sampled
+        this.trackBuses[instrument] = bus;
+        
+        // Connect the worklet output for this instrument to its bus
         if (this.workletNode) {
-          bus.connect(this.workletNode);
+          this.workletNode.connect(bus, i);
+        }
+        
+        // Check if this track has FX defined in the AST defs or events
+        const fxEvent = events.find(e => e.instrument === instrument && e.fx);
+        
+        if (fxEvent && fxEvent.fx) {
+          const fx = fxEvent.fx;
+          let fxNode: AudioNode | null = null;
+          
+          if (fx.type === 'hall' || fx.type === 'reverb') {
+            const convolver = this.context.createConvolver();
+            this.generateSyntheticIRForNode(convolver);
+            fxNode = convolver;
+          } else if (fx.type === 'delay') {
+            const delay = this.context.createDelay();
+            delay.delayTime.value = fx.time ? parseFloat(fx.time) / 1000 : 0.25;
+            
+            const feedback = this.context.createGain();
+            feedback.gain.value = fx.feedback ? parseFloat(fx.feedback) : 0.3;
+            
+            delay.connect(feedback);
+            feedback.connect(delay);
+            
+            fxNode = delay;
+          }
+          
+          if (fxNode) {
+            const dryGain = this.context.createGain();
+            const wetGain = this.context.createGain();
+            
+            const dryWet = fx.dryWet !== undefined ? fx.dryWet : 0.5;
+            dryGain.gain.value = 1 - dryWet;
+            wetGain.gain.value = dryWet;
+            
+            bus.connect(dryGain);
+            bus.connect(fxNode);
+            fxNode.connect(wetGain);
+            
+            dryGain.connect(this.context.destination);
+            wetGain.connect(this.context.destination);
+          } else {
+            bus.connect(this.context.destination);
+          }
+        } else {
+          bus.connect(this.context.destination);
         }
       }
+    }
 
+    for (const event of events) {
       if (event.style === 'standard') {
         const instrumentName = PATCH_MAP[event.instrument] || 'acoustic_grand_piano';
         if (!this.soundfonts[instrumentName]) {
           this.soundfonts[instrumentName] = new Soundfont(this.context, { instrument: instrumentName });
           // Route soundfont output to its bus
-          // smplr Soundfont has an output node
-          this.soundfonts[instrumentName].output.connect(this.trackBuses[event.instrument]);
+          (this.soundfonts[instrumentName].output as any).connect(this.trackBuses[event.instrument]);
         }
       } else if (event.style === 'concrete' && event.src) {
         if (!event.src.startsWith('bus://') && !this.audioBuffers[event.src]) {
@@ -119,6 +169,20 @@ export class AudioEngine {
     }
     
     await Promise.all(promises);
+  }
+
+  private generateSyntheticIRForNode(convolver: ConvolverNode) {
+    const sampleRate = this.context.sampleRate;
+    const length = sampleRate * 2.0; // 2 seconds
+    const impulse = this.context.createBuffer(2, length, sampleRate);
+    const left = impulse.getChannelData(0);
+    const right = impulse.getChannelData(1);
+    for (let i = 0; i < length; i++) {
+      const decay = Math.exp(-i / (sampleRate * 0.5));
+      left[i] = (Math.random() * 2 - 1) * decay;
+      right[i] = (Math.random() * 2 - 1) * decay;
+    }
+    convolver.buffer = impulse;
   }
 
   private async loadAudioBuffer(url: string) {
