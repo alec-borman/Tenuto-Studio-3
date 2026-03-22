@@ -15,6 +15,16 @@ What if you could capture every nuance of a musical composition—the pitches, r
 
 ---
 
+## 🎧 In‑Depth Audio Explanation
+
+Listen to a detailed walkthrough of Tenuto 3.0, its architecture, and why it’s the definitive system of record for music.
+
+[▶️ Click here to play the audio](https://alec-borman.github.io/Tenuto-Studio-3/demo.html)
+
+If the player doesn’t load, you can also [⬇️ download the file directly](https://media.githubusercontent.com/media/alec-borman/Tenuto-Studio-3/main/Tenuto_3%20Deep%20Dive%20into%20Why%20it's%20important.m4a).
+
+---
+
 ## ✨ Why Tenuto is What You’ve Been Looking For
 
 ### 🧠 For AI Researchers & Developers
@@ -135,15 +145,14 @@ All components are open‑source and can be embedded in larger applications. The
 
 ## 🚀 Quick Start (Local)
 
-
 ### Prerequisites
 - Node.js 18+ (for the frontend)
 - Rust & Cargo (optional, for the decompiler and daemon)
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/yourusername/tenuto-studio-3.git
-cd tenuto-studio-3
+git clone https://github.com/alec-borman/Tenuto-Studio-3.git
+cd Tenuto-Studio-3
 ```
 
 ### 2. Install Dependencies
