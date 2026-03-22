@@ -1,7 +1,7 @@
 <div align="center">
   <h1>Tenuto Studio 3.0</h1>
   <p><b>The Comprehensive System of Record for Musical Intent</b></p>
-  <p><i>A CRM, but for Music</i></p>
+  <p><i>The Definitive System of Record for Music</i></p>
   <br/>
 </div>
 
