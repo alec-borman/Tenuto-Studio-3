@@ -135,14 +135,21 @@ All components are open‑source and can be embedded in larger applications. The
 
 ## 🚀 Quick Start (Local)
 
-## 🎧 Listen to the In-Depth Audio Explanation
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tenuto Studio – Deep Dive Audio</title>
+</head>
+<body>
+    <h1>🎧 In-Depth Explanation of Tenuto 3.0</h1>
+    <audio controls preload="metadata">
+        <source src="Tenuto_3%20Deep%20Dive%20into%20Why%20it's%20important.m4a" type="audio/mp4">
+        Your browser does not support the audio element.
+    </audio>
+    <p>If the player doesn't work, <a href="Tenuto_3%20Deep%20Dive%20into%20Why%20it's%20important.m4a">download the file</a>.</p>
+</body>
+</html>
 
-<audio controls>
-  <source src="https://media.githubusercontent.com/media/alec-borman/Tenuto-Studio-3/main/Tenuto_3%20Deep%20Dive%20into%20Why%20it's%20important.m4a" type="audio/mp4">
-  Your browser does not support the audio element.
-</audio>
-
-[⬇️ Download the file directly](https://media.githubusercontent.com/media/alec-borman/Tenuto-Studio-3/main/Tenuto_3%20Deep%20Dive%20into%20Why%20it's%20important.m4a)
 ### Prerequisites
 - Node.js 18+ (for the frontend)
 - Rust & Cargo (optional, for the decompiler and daemon)
