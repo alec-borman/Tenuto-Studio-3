@@ -160,12 +160,17 @@ export default function App() {
                 });
               }
               
+              // Decoupled: Send notes to visualizer immediately, regardless of audio hardware state
+              renderWorkerRef.current?.postMessage({ type: 'UPDATE_NOTES', notes });
+              
               if (payload.audioEvents && audioEngineRef.current) {
                 audioEventsRef.current = payload.audioEvents;
-                await audioEngineRef.current.loadInstruments(payload.audioEvents, payload.ast.defs);
+                try {
+                  await audioEngineRef.current.loadInstruments(payload.audioEvents, payload.ast.defs);
+                } catch (err) {
+                  console.warn("Failed to load instruments on boot. Context may be suspended.", err);
+                }
               }
-              
-              renderWorkerRef.current?.postMessage({ type: 'UPDATE_NOTES', notes });
             });
           } catch (err) {
             console.error("Failed to parse MIDI for WebGL playback:", err);

@@ -328,7 +328,7 @@ class TenutoProcessor extends AudioWorkletProcessor {
   }
 
   process(inputs: Float32Array[][], outputs: Float32Array[][], parameters: Record<string, Float32Array>) {
-    if (!this.isPlaying || !this.int32View || !this.floatView) return true;
+    if (!this.int32View || !this.floatView) return true;
 
     const dryOut = outputs[0];
     const wetOut = outputs.length > 1 ? outputs[1] : outputs[0];

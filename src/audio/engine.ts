@@ -15,7 +15,7 @@ const PATCH_MAP: Record<string, string> = {
 };
 
 export class AudioEngine {
-  private context: AudioContext;
+  private context!: AudioContext;
   private soundfonts: Record<string, Soundfont> = {};
   private activeNodes: Set<any> = new Set();
   private audioBuffers: Record<string, AudioBuffer> = {};
@@ -51,7 +51,7 @@ export class AudioEngine {
   }
 
   constructor() {
-    this.context = Tone.getContext().rawContext as AudioContext;
+    // Context initialization moved to init() to prevent TypeError on boot
   }
 
   /**
@@ -62,6 +62,9 @@ export class AudioEngine {
    */
   public async init(instruments: string[] = []) {
     if (this.isInitialized) return;
+    
+    if (!this.context) this.context = Tone.getContext().rawContext as AudioContext;
+    if (!this.context) throw new Error("BaseAudioContext not found. Tone.js may not be initialized.");
     
     try {
       await this.context.audioWorklet.addModule(processorUrl);
@@ -265,6 +268,7 @@ export class AudioEngine {
    * @returns A Promise that resolves when the playback has been successfully scheduled.
    */
   public async play(events: AudioEvent[], startTime: number) {
+    await Tone.start();
     if (this.context.state === 'suspended') {
       await this.context.resume();
     }
