@@ -96,12 +96,12 @@ fn group_into_measures(tokens: Vec<String>, tpb: u32, ts_num: u32, ts_den: u32, 
     measures
 }
 
-fn hash_measure(measure: &[String]) -> u64 {
-    let mut s = DefaultHasher::new();
-    let (norm, _) = normalize_sequence(measure);
-    norm.join(" ").hash(&mut s);
-    s.finish()
-}
+// fn hash_measure(measure: &[String]) -> u64 {
+//     let mut s = DefaultHasher::new();
+//     let (norm, _) = normalize_sequence(measure);
+//     norm.join(" ").hash(&mut s);
+//     s.finish()
+// }
 
 fn collapse_repeats(measures: Vec<Vec<String>>) -> Vec<String> {
     let mut hashes = Vec::new();

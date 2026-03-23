@@ -62,9 +62,7 @@ export class AudioEngine {
       
       // Listen for messages from worklet
       this.workletNode.port.onmessage = (e) => {
-        if (e.data.type === 'PLAY_SOUNDFONT') {
-          this.scheduleSoundfont(e.data.event);
-        } else if (e.data.type === 'AUTOMATION') {
+        if (e.data.type === 'AUTOMATION') {
           this.handleAutomation(e.data.event);
         }
       };
@@ -158,6 +156,7 @@ export class AudioEngine {
         const instrumentName = PATCH_MAP[event.instrument] || 'acoustic_grand_piano';
         if (!this.soundfonts[instrumentName]) {
           this.soundfonts[instrumentName] = new Soundfont(this.context, { instrument: instrumentName });
+          promises.push(this.soundfonts[instrumentName].loaded());
           // Route soundfont output to its bus
           (this.soundfonts[instrumentName].output as any).connect(this.trackBuses[event.instrument]);
         }
@@ -168,7 +167,11 @@ export class AudioEngine {
       }
     }
     
-    await Promise.all(promises);
+    try {
+      await Promise.all(promises);
+    } catch (e) {
+      console.warn("Some instruments failed to load, falling back to basic oscillators.", e);
+    }
   }
 
   private generateSyntheticIRForNode(convolver: ConvolverNode) {
@@ -209,8 +212,15 @@ export class AudioEngine {
     }
   }
 
-  public play(events: AudioEvent[], startTime: number) {
-    if (!this.workletNode) return;
+  public async play(events: AudioEvent[], startTime: number) {
+    if (this.context.state === 'suspended') {
+      await this.context.resume();
+    }
+    
+    if (!this.workletNode) {
+      console.warn("AudioWorkletNode not initialized. Audio playback may fail.");
+      return;
+    }
     
     // Adjust event times relative to startTime
     const adjustedEvents = events.map(e => {
@@ -220,23 +230,73 @@ export class AudioEngine {
       return { ...e, time: startTime + time };
     });
 
+    console.log("TEDP: Dispatching events to hardware", adjustedEvents);
+
+    // Schedule soundfonts directly in the main thread for precise timing
+    for (const event of adjustedEvents) {
+      if (event.style === 'standard') {
+        this.scheduleSoundfont(event);
+      }
+    }
+
     this.workletNode.port.postMessage({
       type: 'PLAY',
-      events: adjustedEvents
+      events: adjustedEvents.filter(e => e.style !== 'standard')
     });
   }
 
   private scheduleSoundfont(event: AudioEvent) {
+    if (event.note === undefined) return;
     const instrumentName = PATCH_MAP[event.instrument] || 'acoustic_grand_piano';
     const sf = this.soundfonts[instrumentName];
-    if (sf) {
-      sf.start({
-        note: event.note,
-        velocity: event.velocity,
-        time: event.time,
-        duration: event.duration
-      });
+    try {
+      if (sf) {
+        sf.start({
+          note: event.note,
+          velocity: event.velocity || 80,
+          time: event.time,
+          duration: event.duration
+        });
+      } else {
+        this.playFallbackOscillator(event);
+      }
+    } catch (e) {
+      console.warn(`Soundfont failed to play for ${instrumentName}, falling back to oscillator`, e);
+      this.playFallbackOscillator(event);
     }
+  }
+
+  private playFallbackOscillator(event: AudioEvent) {
+    if (event.note === undefined) return;
+    const osc = this.context.createOscillator();
+    const gain = this.context.createGain();
+    
+    osc.type = 'sine';
+    // Convert MIDI note to frequency
+    osc.frequency.value = 440 * Math.pow(2, (event.note - 69) / 12);
+    
+    const velocity = event.velocity || 80;
+    const safeTime = Math.max(event.time, this.context.currentTime);
+    
+    const attackTime = Math.min(0.01, event.duration / 3);
+    const releaseTime = Math.min(0.05, event.duration / 3);
+    
+    gain.gain.setValueAtTime(0, safeTime);
+    gain.gain.linearRampToValueAtTime((velocity / 127) * 0.3, safeTime + attackTime);
+    gain.gain.setValueAtTime((velocity / 127) * 0.3, safeTime + event.duration - releaseTime);
+    gain.gain.linearRampToValueAtTime(0, safeTime + event.duration);
+    
+    const bus = this.trackBuses[event.instrument];
+    if (bus) {
+      osc.connect(gain);
+      gain.connect(bus);
+    } else {
+      osc.connect(gain);
+      gain.connect(this.context.destination);
+    }
+    
+    osc.start(safeTime);
+    osc.stop(safeTime + event.duration);
   }
 
   private handleAutomation(event: AudioEvent) {

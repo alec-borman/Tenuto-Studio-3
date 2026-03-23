@@ -53,7 +53,7 @@ export class SVGEngraver {
     // Determine parts to render
     const parts = ast.defs.map(d => d.id);
     const staffHeight = 40; // 5 lines, 10px spacing
-    const staffSpacing = 80;
+    const staffSpacing = 150;
     
     // Group parts by group name
     const groups: Record<string, number[]> = {};
@@ -88,9 +88,11 @@ export class SVGEngraver {
         svg += `<line x1="0" y1="${y}" x2="${system.measures.reduce((sum, m) => sum + m.width, 0)}" y2="${y}" class="staff-line" />`;
       }
       
-      // Clef (Treble clef placeholder)
-      const clefGlyph = SMUFL_METADATA['gClef'];
-      svg += `<path d="${clefGlyph.path}" transform="translate(10, ${staffY + 30}) scale(10)" class="clef-path" fill="#000" />`;
+      // Clef (Unicode Fallback)
+      const isTreble = partIndex === 0;
+      const clefChar = isTreble ? "𝄞" : "𝄢";
+      const clefY = isTreble ? staffY + 32 : staffY + 28;
+      svg += `<text x="10" y="${clefY}" class="clef">${clefChar}</text>`;
       
       // Barlines at start of system
       let startBarline = `<line x1="0" y1="${staffY}" x2="0" y2="${staffY + 40}" class="barline" />`;
@@ -399,13 +401,18 @@ export class SVGEngraver {
     let svg = '';
     
     // Ledger lines
-    if (y > targetStaffY + 40) {
-      for (let ly = targetStaffY + 50; ly <= y; ly += 10) {
-        svg += `<line x1="${x - 6}" y1="${ly}" x2="${x + 16}" y2="${ly}" class="ledger" />`;
-      }
-    } else if (y < targetStaffY) {
-      for (let ly = targetStaffY - 10; ly >= y; ly -= 10) {
-        svg += `<line x1="${x - 6}" y1="${ly}" x2="${x + 16}" y2="${ly}" class="ledger" />`;
+    if (note.pitch !== 'r') {
+      // Add a sanity check to prevent infinite loops or millions of lines
+      // if the pitch calculation goes wild (e.g. octave is NaN or huge)
+      const maxLedgers = 15; // Max 15 ledger lines (~150px)
+      if (y > targetStaffY + 40 && y <= targetStaffY + 40 + maxLedgers * 10) {
+        for (let ly = targetStaffY + 50; ly <= y; ly += 10) {
+          svg += `<line x1="${x - 6}" y1="${ly}" x2="${x + 16}" y2="${ly}" class="ledger" />`;
+        }
+      } else if (y < targetStaffY && y >= targetStaffY - maxLedgers * 10) {
+        for (let ly = targetStaffY - 10; ly >= y; ly -= 10) {
+          svg += `<line x1="${x - 6}" y1="${ly}" x2="${x + 16}" y2="${ly}" class="ledger" />`;
+        }
       }
     }
     

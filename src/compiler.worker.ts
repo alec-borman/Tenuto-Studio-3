@@ -2,13 +2,28 @@ import { Parser, ParserError, AST } from './compiler/parser';
 import { SemanticAnalyzer, SemanticError } from './compiler/analyzer';
 import { Linter } from './compiler/linter';
 import { SVGEngraver } from './engraver/svg';
-import init, { compile_tenuto_to_svg, decompile_midi_to_tenuto, alloc_buffer, free_buffer, decompile_midi_zero_copy } from '../public/pkg/tenutoc.js';
+import init, { compile_tenuto_to_midi, compile_tenuto_to_svg, decompile_midi_to_tenuto, alloc_buffer, free_buffer, decompile_midi_zero_copy } from '../public/pkg/tenutoc.js';
 import { STDLIB } from './compiler/stdlib';
 import { MusicXMLExporter } from './compiler/musicxml';
 import { MIDIGenerator } from './compiler/midi';
 import { CompilerError } from './compiler/diagnostics';
 import { AudioEventGenerator } from './compiler/audio';
 import { GraphUnroller } from './compiler/unroller';
+
+export interface CompilerRequest {
+    type: 'CODE_CHANGED' | 'DECOMPILE';
+    code?: string;
+    tempoOverride?: number;
+    midi_bytes?: Uint8Array;
+}
+
+export interface CompilerResponse {
+    type: 'STATUS' | 'SUCCESS' | 'ERROR' | 'DECOMPILE_SUCCESS';
+    status?: string;
+    error?: string;
+    payload?: any;
+    bootTime?: string;
+}
 
 let isWasmLoaded = false;
 let wasmMemory: any = null;
@@ -34,28 +49,31 @@ async function bootCompiler() {
         const bootTime = performance.now() - startTime;
         isWasmLoaded = true;
         
-        postMessage({ 
+        const response: CompilerResponse = { 
             type: 'STATUS', 
             status: 'READY',
             bootTime: bootTime.toFixed(2)
-        });
+        };
+        postMessage(response);
     } catch (e: any) {
-        postMessage({ 
+        const response: CompilerResponse = { 
             type: 'STATUS', 
             status: 'ERROR', 
             error: e.toString() 
-        });
+        };
+        postMessage(response);
     }
 }
 
 bootCompiler();
 
-self.onmessage = async (e) => {
+self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
     if (!isWasmLoaded) {
-        postMessage({ 
+        const response: CompilerResponse = { 
             type: 'ERROR', 
             payload: { message: "Compiler is still booting. Please wait." } 
-        });
+        };
+        postMessage(response);
         return;
     }
 
@@ -63,7 +81,8 @@ self.onmessage = async (e) => {
 
     if (type === 'CODE_CHANGED') {
         if (!code || code.trim() === '') {
-            postMessage({ type: 'ERROR', payload: { message: "Source code is empty." } });
+            const response: CompilerResponse = { type: 'ERROR', payload: { message: "Source code is empty." } };
+            postMessage(response);
             return;
         }
 
@@ -116,13 +135,14 @@ self.onmessage = async (e) => {
                 // Return semantic errors
                 const diagnostics = semanticErrors.map(err => err.diagnostic);
                 
-                postMessage({ 
+                const response: CompilerResponse = { 
                     type: 'ERROR', 
                     payload: { 
                         message: "Semantic analysis failed",
                         diagnostics
                     } 
-                });
+                };
+                postMessage(response);
                 return;
             }
 
@@ -146,7 +166,7 @@ self.onmessage = async (e) => {
             
             const compileDuration = performance.now() - compileStartTime;
             
-            postMessage({ 
+            const response: CompilerResponse = { 
                 type: 'SUCCESS', 
                 payload: { 
                     midi: midiBytes,
@@ -160,7 +180,8 @@ self.onmessage = async (e) => {
                     durationMs: compileDuration.toFixed(2),
                     diagnostics: lintDiagnostics
                 } 
-            });
+            };
+            postMessage(response);
             
         } catch (err: any) {
             let diagnostics = [];
@@ -178,18 +199,19 @@ self.onmessage = async (e) => {
                 });
             }
             
-            postMessage({ 
+            const response: CompilerResponse = { 
                 type: 'ERROR', 
                 payload: { 
                     message: err.toString(),
                     diagnostics
                 } 
-            });
+            };
+            postMessage(response);
         }
     } else if (type === 'DECOMPILE') {
         try {
             let tenutoCode;
-            const midiBytesArray = new Uint8Array(midi_bytes);
+            const midiBytesArray = new Uint8Array(midi_bytes!);
             
             if (wasmMemory && typeof alloc_buffer === 'function' && typeof free_buffer === 'function' && typeof decompile_midi_zero_copy === 'function') {
                 const len = midiBytesArray.length;
@@ -197,28 +219,32 @@ self.onmessage = async (e) => {
                 // 1. Allocate memory inside the Rust Wasm instance
                 const ptr = alloc_buffer(len);
                 
-                // 2. Create a view into that specific memory block and copy our MIDI bytes in
-                const memoryView = new Uint8Array(wasmMemory.buffer, ptr, len);
-                memoryView.set(midiBytesArray);
-                
-                // 3. Tell Rust to decompile the bytes at that pointer
-                tenutoCode = decompile_midi_zero_copy(ptr, len);
-                
-                // 4. Free the memory to prevent leaks
-                free_buffer(ptr, len);
+                try {
+                    // 2. Create a view into that specific memory block and copy our MIDI bytes in
+                    const memoryView = new Uint8Array(wasmMemory.buffer, ptr, len);
+                    memoryView.set(midiBytesArray);
+                    
+                    // 3. Tell Rust to decompile the bytes at that pointer
+                    tenutoCode = decompile_midi_zero_copy(ptr, len);
+                } finally {
+                    // 4. Free the memory to prevent leaks
+                    free_buffer(ptr, len);
+                }
             } else {
                 throw new Error("WASM Memory or Zero-Copy functions are not securely linked.");
             }
 
-            postMessage({
+            const response: CompilerResponse = {
                 type: 'DECOMPILE_SUCCESS',
                 payload: { code: tenutoCode }
-            });
+            };
+            postMessage(response);
         } catch (err: any) {
-            postMessage({
+            const response: CompilerResponse = {
                 type: 'ERROR',
                 payload: { message: err.toString() }
-            });
+            };
+            postMessage(response);
         }
     }
 };

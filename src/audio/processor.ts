@@ -309,11 +309,11 @@ class TenutoProcessor extends AudioWorkletProcessor {
       this.busWriteIndex = (this.busWriteIndex + frameCount) % this.busBuffer[0].length;
     }
 
-    const currentTime = this.currentFrame / sampleRate;
-    const endTime = (this.currentFrame + frameCount) / sampleRate;
+    const currentCtxTime = currentTime; // global currentTime from AudioWorkletGlobalScope
+    const endCtxTime = currentCtxTime + frameCount / sampleRate;
 
     // Check for new events to trigger
-    while (this.events.length > 0 && this.events[0].time < endTime) {
+    while (this.events.length > 0 && this.events[0].time < endCtxTime) {
       const event = this.events.shift()!;
       
       if (event.type === 'automation') {
@@ -369,16 +369,13 @@ class TenutoProcessor extends AudioWorkletProcessor {
         }
 
         // Fast-forward voice if it was supposed to start in the past
-        const offset = currentTime - event.time;
+        const offset = currentCtxTime - event.time;
         if (offset > 0) {
           // In a real implementation we'd advance the voice state, 
           // but for small block sizes (128 samples = ~3ms), it's negligible.
         }
 
         this.activeVoices.push(voice);
-      } else if (event.style === 'standard') {
-        // Tell main thread to play soundfont
-        this.port.postMessage({ type: 'PLAY_SOUNDFONT', event });
       }
     }
 
@@ -397,7 +394,7 @@ class TenutoProcessor extends AudioWorkletProcessor {
       tempL.fill(0);
       tempR.fill(0);
       
-      voice.process(tempL, tempR, 0, frameCount, currentTime, this.activeAutomations);
+      voice.process(tempL, tempR, 0, frameCount, currentCtxTime, this.activeAutomations);
       
       const fx = voice.event.fx;
       const dryWet = fx ? fx.dryWet : 0;

@@ -690,6 +690,7 @@ export class Parser {
           modifiers.push('diminuendo');
         } else if (['stacc', 'ten', 'marc', 'slur', 'f', 'p', 'ff', 'pp', 'sfz'].includes(part)) {
           articulation = part;
+          modifiers.push(part); // FIX: Ensure SVG Engraver receives stacking data
         } else if (part) {
           modifiers.push(part);
         }
@@ -707,12 +708,25 @@ export class Parser {
         let modStr = '';
         if (duration.endsWith('.')) {
           if (this.check(TokenType.Identifier)) {
-            modStr = this.advance().value;
+            const nextToken = this.peek();
+            // ONLY absorb the modifier if it physically touches the dot (no spaces/newlines)
+            if (durToken.line === nextToken.line && (durToken.column + durToken.value.length) === nextToken.column) {
+              // If the user wrote 4..stacc, it's a dotted duration with a modifier.
+              // If they wrote 4.stacc, it's a regular duration with a modifier.
+              if (duration.endsWith('..')) {
+                duration = duration.slice(0, -1); // Keep one dot for dotted duration
+              } else {
+                duration = duration.slice(0, -1); // Strip the accessor dot
+              }
+              modStr = this.advance().value;
+            }
           }
         } else if (duration.includes('.')) {
           const parts = duration.split('.');
-          duration = parts[0] + '.';
-          modStr = parts.slice(1).join('.');
+          if (isNaN(parseFloat(duration))) {
+             duration = parts[0] + '.';
+             modStr = parts.slice(1).join('.');
+          }
         }
 
         this.currentDuration = duration;

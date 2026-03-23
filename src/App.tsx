@@ -5,19 +5,26 @@ import * as Tone from 'tone';
 import { registerTenutoLanguage } from './editor/tenutoLanguage';
 import { AudioEngine } from './audio/engine';
 import { useTenutoDaemon, LinkState } from './hooks/useTenutoDaemon';
+import { CompilerRequest, CompilerResponse } from './compiler.worker';
 
 import { Diagnostic } from './compiler/diagnostics';
 
 const DEFAULT_CODE = `tenuto "3.0" {
-  meta @{ title: "Bus Routing Demo", tempo: 120, time: "4/4" }
+  meta @{ title: "Olympia - Anthem of the Human Spirit", tempo: 120, time: "4/4" }
   
   def synth1 "Lead Synth" style=synth env=@{ a: 10ms, d: 200ms, s: 50%, r: 500ms }
   def fxTrack "FX Return" style=concrete src="bus://synth1" env=@{ a: 10ms, d: 1s, s: 100%, r: 1s }
   
   measure 1 {
     |:
-    synth1: c5:8 d5:8 e5:8 f5:8 g5:8 f5:8 e5:8 d5:8 |
+    synth1: c5:8.stacc d5:8.stacc e5:8.stacc f5:8.stacc g5:8.stacc f5:8.stacc e5:8.stacc d5:8.stacc |
     fxTrack: c4:1.slice(2).reverse |
+  }
+  
+  measure 2 {
+    synth1: c5:4.marc e5:4.marc g5:4.marc c6:4.marc |
+    fxTrack: c4:2.slice(4) c4:2.reverse |
+    :|
   }
 }`;
 
@@ -112,7 +119,7 @@ export default function App() {
     // Initialize Compiler Worker
     workerRef.current = new Worker(new URL('./compiler.worker.ts', import.meta.url), { type: 'module' });
     
-    workerRef.current.onmessage = (e) => {
+    workerRef.current.onmessage = (e: MessageEvent<CompilerResponse>) => {
       const { type, payload, status: workerStatus, error } = e.data;
       
       if (type === 'STATUS') {
@@ -223,11 +230,12 @@ export default function App() {
 
   const compileCode = (source: string, tempoOverride?: number) => {
     setStatus('Compiling...');
-    workerRef.current?.postMessage({ 
+    const request: CompilerRequest = { 
       type: 'CODE_CHANGED', 
       code: source,
       tempoOverride: tempoOverride
-    });
+    };
+    workerRef.current?.postMessage(request);
   };
 
   // Sprint 5: Re-compile when Link tempo changes
@@ -443,7 +451,8 @@ export default function App() {
         const arrayBuffer = event.target?.result as ArrayBuffer;
         const uint8Array = new Uint8Array(arrayBuffer);
         setStatus('Decompiling MIDI...');
-        workerRef.current?.postMessage({ type: 'DECOMPILE', midi_bytes: uint8Array });
+        const request: CompilerRequest = { type: 'DECOMPILE', midi_bytes: uint8Array };
+        workerRef.current?.postMessage(request);
       };
       reader.readAsArrayBuffer(file);
     }

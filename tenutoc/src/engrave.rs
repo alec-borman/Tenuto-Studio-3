@@ -1,4 +1,4 @@
-use crate::rebar::{VisualScore, VisualEvent};
+use crate::rebar::VisualScore;
 use crate::ir::{EventKind, LyricExtension};
 use crate::spelling::AccidentalDisplay;
 
