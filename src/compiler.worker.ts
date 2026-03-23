@@ -166,6 +166,9 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
             
             const compileDuration = performance.now() - compileStartTime;
             
+            const DEBUG = true;
+            if (DEBUG) console.log(`[WSM] IR: ${audioEvents.length} events | ${compileDuration.toFixed(2)}ms`);
+            
             const response: CompilerResponse = { 
                 type: 'SUCCESS', 
                 payload: { 

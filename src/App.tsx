@@ -311,6 +311,9 @@ export default function App() {
         linkPhase = linkStateRef.current.phase;
         linkBeat = linkStateRef.current.beat;
         linkTempo = linkStateRef.current.tempo;
+        
+        const DEBUG = true;
+        if (DEBUG && isLink && linkBeat % 4 === 0) console.log(`[LNK] Sync Phase: ${linkPhase.toFixed(2)} | Tempo: ${linkTempo}`);
       }
       
       if (playheadRef.current) {

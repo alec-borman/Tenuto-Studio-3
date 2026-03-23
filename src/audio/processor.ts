@@ -421,6 +421,9 @@ class TenutoProcessor extends AudioWorkletProcessor {
         }
       }
 
+      const DEBUG = true;
+      if (DEBUG && readIdx % 16 === 0) console.log(`[DSP] Read Head: ${readIdx} | Active Voices: ${this.voices.filter(v => v.active).length}`);
+
       readIdx++;
     }
 

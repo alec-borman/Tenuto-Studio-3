@@ -407,6 +407,9 @@ export class AudioEngine {
       
       Atomics.store(this.int32View, 0, writeIdx);
       
+      const DEBUG = true;
+      if (DEBUG) console.log(`[TEDP] SharedBuffer Write Head: ${writeIdx} | Start: ${startTime.toFixed(3)}s`);
+      
       this.workletNode.port.postMessage({ type: 'WAKE' });
     }
   }
