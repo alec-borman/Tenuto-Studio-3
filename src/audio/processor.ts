@@ -1,92 +1,127 @@
 // @ts-nocheck
-interface AudioEvent {
-  type?: 'note' | 'automation';
-  time: number;
-  note?: number;
-  duration: number;
-  velocity?: number;
-  instrument: string;
-  style?: string;
-  env?: Record<string, string>;
-  src?: string;
-  push?: number;
-  pull?: number;
-  modifiers?: string[];
-  pan?: number;
-  orbit?: { angle: number, dist: number };
-  fx?: { type: string, dryWet: number };
-  controller?: number | string;
-  startValue?: number;
-  endValue?: number;
-  curve?: string;
+
+class Automation {
+  active: boolean = false;
+  time: number = 0;
+  duration: number = 0;
+  instrumentId: number = 0;
+  controller: number = 0;
+  startValue: number = 0;
+  endValue: number = 0;
+  curve: number = 0;
+
+  init(time: number, duration: number, instrumentId: number, controller: number, startValue: number, endValue: number, curve: number) {
+    this.active = true;
+    this.time = time;
+    this.duration = duration;
+    this.instrumentId = instrumentId;
+    this.controller = controller;
+    this.startValue = startValue;
+    this.endValue = endValue;
+    this.curve = curve;
+  }
 }
 
 class Voice {
-  active: boolean = true;
+  active: boolean = false;
   phase: number = 0;
   time: number = 0;
   
-  // Envelope state
   envState: 'A' | 'D' | 'S' | 'R' | 'DONE' = 'A';
   envTime: number = 0;
   currentVol: number = 0;
   
-  // Concrete state
   buffer?: Float32Array[];
   bufferIndex: number = 0;
   playbackRate: number = 1;
   isBus: boolean = false;
+  
+  currentFreq: number = 440;
+  targetFreq: number = 440;
+  glideTime: number = 0;
 
-  // Glide state
-  currentFreq: number;
-  targetFreq: number;
-  glideTime: number;
+  duration: number = 0;
+  instrumentId: number = 0;
+  note: number = 0;
+  style: number = 0;
+  a: number = 0.01;
+  d: number = 0.1;
+  s: number = 0.5;
+  r: number = 0.1;
+  maxVol: number = 0;
+  pan: number = 0;
+  orbitAngle: number = 0;
+  orbitDist: number = 0;
+  fxDryWet: number = 0;
 
-  constructor(
-    public event: AudioEvent,
-    public sampleRate: number,
-    public a: number,
-    public d: number,
-    public s: number,
-    public r: number,
-    public maxVol: number,
-    buffer?: Float32Array[],
-    isBus: boolean = false,
-    busWriteIndex: number = 0
+  sampleRate: number = 44100;
+
+  init(
+    sampleRate: number,
+    duration: number,
+    instrumentId: number,
+    note: number,
+    velocity: number,
+    style: number,
+    a: number, d: number, s: number, r: number,
+    buffer: Float32Array[] | undefined,
+    isBus: boolean,
+    busWriteIndex: number,
+    playbackRate: number,
+    sliceIdx: number,
+    glideTime: number,
+    targetNote: number,
+    pan: number,
+    orbitAngle: number,
+    orbitDist: number,
+    fxDryWet: number
   ) {
+    this.active = true;
+    this.phase = 0;
+    this.time = 0;
+    this.envState = 'A';
+    this.envTime = 0;
+    this.currentVol = 0;
+    
+    this.sampleRate = sampleRate;
+    this.duration = duration;
+    this.instrumentId = instrumentId;
+    this.note = note;
+    this.style = style;
+    this.a = a;
+    this.d = d;
+    this.s = s;
+    this.r = r;
+    this.maxVol = (velocity / 127) * 0.5;
+    
     this.buffer = buffer;
     this.isBus = isBus;
     if (isBus) {
       this.bufferIndex = busWriteIndex;
+      if (sliceIdx > 0) {
+        this.bufferIndex -= sliceIdx * sampleRate;
+      }
+    } else if (buffer) {
+      const slices = 8;
+      const sliceLen = buffer[0].length / slices;
+      this.bufferIndex = sliceIdx * sliceLen;
+    } else {
+      this.bufferIndex = 0;
     }
     
-    // Frequency
-    this.currentFreq = 440 * Math.pow(2, (event.note - 69) / 12);
-    this.targetFreq = this.currentFreq;
-    this.glideTime = 0;
-
-    if (event.modifiers) {
-      for (const mod of event.modifiers) {
-        if (mod.startsWith('glide(')) {
-          const match = mod.match(/glide\(([\d.]+)(ms|s)?\)/);
-          if (match) {
-            const val = parseFloat(match[1]);
-            const unit = match[2] || 'ms';
-            this.glideTime = unit === 's' ? val : val / 1000;
-            
-            if ((event as any).nextNote) {
-               this.targetFreq = 440 * Math.pow(2, ((event as any).nextNote - 69) / 12);
-            }
-          }
-        }
-        if (mod === 'reverse') {
-          this.playbackRate = -1;
-        }
-      }
-    }
+    this.playbackRate = playbackRate;
+    
+    this.currentFreq = 440 * Math.pow(2, (note - 69) / 12);
+    this.targetFreq = targetNote > 0 ? 440 * Math.pow(2, (targetNote - 69) / 12) : this.currentFreq;
+    this.glideTime = glideTime;
+    
+    this.pan = pan;
+    this.orbitAngle = orbitAngle;
+    this.orbitDist = orbitDist;
+    this.fxDryWet = fxDryWet;
   }
 
-  process(outL: Float32Array, outR: Float32Array, startIdx: number, count: number, currentTime: number, automations: AudioEvent[]) {
+  process(outL: Float32Array, outR: Float32Array, startIdx: number, count: number, currentTime: number, automations: Automation[]) {
     for (let i = 0; i < count; i++) {
       if (this.envState === 'DONE') {
         this.active = false;
@@ -109,7 +144,7 @@ class Voice {
         }
       } else if (this.envState === 'S') {
         this.currentVol = this.maxVol * this.s;
-        if (this.time >= this.event.duration) {
+        if (this.time >= this.duration) {
           this.envState = 'R';
           this.envTime = 0;
         }
@@ -132,38 +167,40 @@ class Voice {
       }
 
       // Panning & Orbit
-      let pan = this.event.pan !== undefined ? this.event.pan : 0;
+      let currentPan = this.pan;
       let distGain = 1;
       let volMultiplier = 1;
-      let pitchBend = 8192; // 14-bit center
+      let pitchBend = 8192;
 
-      if (this.event.orbit) {
-        const angleRad = this.event.orbit.angle * Math.PI / 180;
-        pan = Math.sin(angleRad);
-        distGain = 1 / (1 + this.event.orbit.dist);
+      if (this.orbitAngle !== 0 || this.orbitDist !== 0) {
+        const angleRad = this.orbitAngle * Math.PI / 180;
+        currentPan = Math.sin(angleRad);
+        distGain = 1 / (1 + this.orbitDist);
       }
 
       const sampleTime = currentTime + i / this.sampleRate;
 
-      for (const auto of automations) {
-        if (auto.instrument === this.event.instrument) {
+      for (let a = 0; a < automations.length; a++) {
+        const auto = automations[a];
+        if (!auto.active) continue;
+        if (auto.instrumentId === this.instrumentId) {
           if (sampleTime >= auto.time) {
-            let val = auto.endValue!;
+            let val = auto.endValue;
             if (sampleTime <= auto.time + auto.duration) {
               const t = (sampleTime - auto.time) / auto.duration;
-              if (auto.curve === 'linear') {
-                val = auto.startValue! + (auto.endValue! - auto.startValue!) * t;
-              } else {
-                const start = Math.max(0.001, auto.startValue!);
-                const end = Math.max(0.001, auto.endValue!);
+              if (auto.curve === 0) { // linear
+                val = auto.startValue + (auto.endValue - auto.startValue) * t;
+              } else { // exponential
+                const start = Math.max(0.001, auto.startValue);
+                const end = Math.max(0.001, auto.endValue);
                 val = start * Math.pow(end / start, t);
               }
             }
-            if (auto.controller === 'pan') {
-              pan = val;
-            } else if (auto.controller === 'volume') {
+            if (auto.controller === 0) { // pan
+              currentPan = val;
+            } else if (auto.controller === 1) { // volume
               volMultiplier = val;
-            } else if (auto.controller === 'pitchbend') {
+            } else if (auto.controller === 2) { // pitchbend
               pitchBend = val;
             }
           }
@@ -172,19 +209,17 @@ class Voice {
 
       // Apply pitchbend to freq
       if (pitchBend !== 8192) {
-        const bendSemitones = ((pitchBend - 8192) / 8192) * 2; // +/- 2 semitones range
+        const bendSemitones = ((pitchBend - 8192) / 8192) * 2;
         freq = freq * Math.pow(2, bendSemitones / 12);
       }
 
       let sample = 0;
 
-      if (this.event.style === 'synth') {
-        // Square wave
+      if (this.style === 0) { // synth
         const period = this.sampleRate / freq;
         sample = (this.phase % period) < (period / 2) ? 1 : -1;
         this.phase++;
-      } else if (this.event.style === 'concrete' && this.buffer) {
-        // For concrete style, adjust playback rate based on pitchbend
+      } else if (this.style === 1 && this.buffer) { // concrete
         let currentPlaybackRate = this.playbackRate;
         if (pitchBend !== 8192) {
           const bendSemitones = ((pitchBend - 8192) / 8192) * 2;
@@ -192,7 +227,6 @@ class Voice {
         }
 
         if (this.isBus) {
-          // Circular buffer read
           let intIdx = Math.floor(this.bufferIndex);
           if (intIdx < 0) intIdx += this.buffer[0].length;
           intIdx = intIdx % this.buffer[0].length;
@@ -213,17 +247,12 @@ class Voice {
       sample *= this.currentVol;
       sample *= volMultiplier;
 
-      // Equal power panning
-      const panMapped = (pan + 1) / 2; // 0 to 1
+      const panMapped = (currentPan + 1) / 2;
       const gainL = Math.cos(panMapped * Math.PI / 2) * distGain;
       const gainR = Math.sin(panMapped * Math.PI / 2) * distGain;
 
       outL[startIdx + i] += sample * gainL;
       outR[startIdx + i] += sample * gainR;
-
-      // FX Send (we can output wet signal to additional channels if needed, 
-      // but for now we'll handle FX in the main thread by routing the whole worklet output.
-      // Wait, if different events have different FX sends, we need separate outputs!)
 
       const dt = 1 / this.sampleRate;
       this.time += dt;
@@ -233,66 +262,79 @@ class Voice {
 }
 
 class TenutoProcessor extends AudioWorkletProcessor {
-  private events: AudioEvent[] = [];
-  private activeVoices: Voice[] = [];
-  private audioBuffers: Record<string, Float32Array[]> = {};
-  private currentFrame: number = 0;
+  private voices: Voice[] = [];
+  private automations: Automation[] = [];
+  private audioBuffers: Record<number, Float32Array[]> = {};
   private isPlaying: boolean = false;
 
-  private activeAutomations: AudioEvent[] = [];
   private busBuffer: Float32Array[] = [];
   private busWriteIndex: number = 0;
 
+  private sharedBuffer: SharedArrayBuffer | null = null;
+  private int32View: Int32Array | null = null;
+  private floatView: Float32Array | null = null;
+
+  private MAX_EVENTS = 1024;
+  private FLOATS_PER_EVENT = 24;
+
   constructor() {
     super();
-    // Initialize 10 seconds of stereo bus history
+    
+    // Pre-allocate 128 voices
+    for (let i = 0; i < 128; i++) {
+      this.voices.push(new Voice());
+    }
+
+    // Pre-allocate 64 automations
+    for (let i = 0; i < 64; i++) {
+      this.automations.push(new Automation());
+    }
+
     this.busBuffer = [
       new Float32Array(sampleRate * 10),
       new Float32Array(sampleRate * 10)
     ];
+
     this.port.onmessage = (e) => {
-      if (e.data.type === 'LOAD_BUFFER') {
-        this.audioBuffers[e.data.url] = e.data.buffer;
-      } else if (e.data.type === 'PLAY') {
-        this.events = e.data.events.sort((a: AudioEvent, b: AudioEvent) => a.time - b.time);
-        this.currentFrame = 0;
-        this.activeVoices = [];
-        this.activeAutomations = [];
+      if (e.data.type === 'INIT') {
+        this.sharedBuffer = e.data.sharedBuffer;
+        this.int32View = new Int32Array(this.sharedBuffer, 0, 2);
+        this.floatView = new Float32Array(this.sharedBuffer, 8);
+        this.isPlaying = true;
+      } else if (e.data.type === 'LOAD_BUFFER') {
+        this.audioBuffers[e.data.bufferId] = e.data.buffer;
+      } else if (e.data.type === 'WAKE') {
         this.isPlaying = true;
       } else if (e.data.type === 'STOP') {
         this.isPlaying = false;
-        this.events = [];
-        this.activeVoices = [];
-        this.activeAutomations = [];
+        for (let i = 0; i < this.voices.length; i++) this.voices[i].active = false;
+        for (let i = 0; i < this.automations.length; i++) this.automations[i].active = false;
       }
     };
   }
 
-  private parseTime(val: string | undefined, defaultVal: number): number {
-    if (!val) return defaultVal;
-    if (val.endsWith('ms')) return parseFloat(val) / 1000;
-    if (val.endsWith('s')) return parseFloat(val);
-    return defaultVal;
+  private getInactiveVoice(): Voice | null {
+    for (let i = 0; i < this.voices.length; i++) {
+      if (!this.voices[i].active) return this.voices[i];
+    }
+    return null;
   }
 
-  private parsePercent(val: string | undefined, defaultVal: number): number {
-    if (!val) return defaultVal;
-    if (val.endsWith('%')) return parseFloat(val) / 100;
-    return defaultVal;
+  private getInactiveAutomation(): Automation | null {
+    for (let i = 0; i < this.automations.length; i++) {
+      if (!this.automations[i].active) return this.automations[i];
+    }
+    return null;
   }
 
   process(inputs: Float32Array[][], outputs: Float32Array[][], parameters: Record<string, Float32Array>) {
-    if (!this.isPlaying) return true;
+    if (!this.isPlaying || !this.int32View || !this.floatView) return true;
 
-    // Output 0: Dry Mix (Stereo)
-    // Output 1: Wet Mix (Stereo) - for FX
     const dryOut = outputs[0];
-    const wetOut = outputs.length > 1 ? outputs[1] : outputs[0]; // Fallback if only 1 output
+    const wetOut = outputs.length > 1 ? outputs[1] : outputs[0];
 
-    const channelCount = dryOut.length;
     const frameCount = dryOut[0].length;
     
-    // Write inputs to busBuffer
     const input = inputs[0];
     if (input && input.length > 0) {
       for (let i = 0; i < frameCount; i++) {
@@ -305,79 +347,84 @@ class TenutoProcessor extends AudioWorkletProcessor {
         this.busWriteIndex = (this.busWriteIndex + 1) % this.busBuffer[0].length;
       }
     } else {
-      // Advance write index even if no input to keep time synced
       this.busWriteIndex = (this.busWriteIndex + frameCount) % this.busBuffer[0].length;
     }
 
-    const currentCtxTime = currentTime; // global currentTime from AudioWorkletGlobalScope
+    const currentCtxTime = currentTime;
     const endCtxTime = currentCtxTime + frameCount / sampleRate;
 
-    // Check for new events to trigger
-    while (this.events.length > 0 && this.events[0].time < endCtxTime) {
-      const event = this.events.shift()!;
-      
-      if (event.type === 'automation') {
-        this.activeAutomations.push(event);
-        continue;
+    // Read from ring buffer
+    let writeIdx = Atomics.load(this.int32View, 0);
+    let readIdx = Atomics.load(this.int32View, 1);
+
+    while (readIdx < writeIdx) {
+      const offset = (readIdx % this.MAX_EVENTS) * this.FLOATS_PER_EVENT;
+      const eventTime = this.floatView[offset + 1];
+
+      // If event is in the future, stop reading
+      if (eventTime >= endCtxTime) {
+        break;
       }
 
-      // We only handle synth and concrete in the worklet
-      if (event.style === 'synth' || event.style === 'concrete') {
-        let a = 0.01, d = 0.1, s = 0.5, r = 0.1;
-        if (event.env) {
-          a = this.parseTime(event.env.a, a);
-          d = this.parseTime(event.env.d, d);
-          s = this.parsePercent(event.env.s, s);
-          r = this.parseTime(event.env.r, r);
-        }
+      const type = this.floatView[offset + 0];
+      const duration = this.floatView[offset + 2];
+      const instrumentId = this.floatView[offset + 3];
 
-        const maxVol = (event.velocity / 127) * 0.5;
-        
+      if (type === 1) { // Automation
+        const controller = this.floatView[offset + 4];
+        const startValue = this.floatView[offset + 5];
+        const endValue = this.floatView[offset + 15];
+        const curve = this.floatView[offset + 20];
+
+        const auto = this.getInactiveAutomation();
+        if (auto) {
+          auto.init(eventTime, duration, instrumentId, controller, startValue, endValue, curve);
+        }
+      } else { // Note
+        const note = this.floatView[offset + 4];
+        const velocity = this.floatView[offset + 5];
+        const style = this.floatView[offset + 6];
+        const a = this.floatView[offset + 7];
+        const d = this.floatView[offset + 8];
+        const s = this.floatView[offset + 9];
+        const r = this.floatView[offset + 10];
+        const bufferId = this.floatView[offset + 11];
+        const playbackRate = this.floatView[offset + 12];
+        const sliceIdx = this.floatView[offset + 13];
+        const glideTime = this.floatView[offset + 14];
+        const targetNote = this.floatView[offset + 15];
+        const pan = this.floatView[offset + 16];
+        const orbitAngle = this.floatView[offset + 17];
+        const orbitDist = this.floatView[offset + 18];
+        const fxDryWet = this.floatView[offset + 19];
+
         let buffer: Float32Array[] | undefined;
         let isBus = false;
-        if (event.style === 'concrete' && event.src) {
-          if (event.src.startsWith('bus://')) {
+
+        if (style === 1) { // concrete
+          if (bufferId === -1) {
             buffer = this.busBuffer;
             isBus = true;
-          } else {
-            buffer = this.audioBuffers[event.src];
+          } else if (bufferId > 0) {
+            buffer = this.audioBuffers[bufferId];
           }
         }
 
-        const voice = new Voice(event, sampleRate, a, d, s, r, maxVol, buffer, isBus, this.busWriteIndex);
-        
-        // Handle slice for concrete
-        if (event.style === 'concrete' && buffer) {
-          let sliceIdx = 0;
-          if (event.modifiers) {
-            for (const mod of event.modifiers) {
-              if (mod.startsWith('slice(')) {
-                const match = mod.match(/slice\(([\d.]+)\)/);
-                if (match) sliceIdx = parseInt(match[1], 10) - 1;
-              }
-            }
-          }
-          if (!isBus) {
-            const slices = 8;
-            const sliceLen = buffer[0].length / slices;
-            voice.bufferIndex = sliceIdx * sliceLen;
-          } else {
-            // For bus, slice could mean jumping back in time?
-            // Let's say slice(1) is current time, slice(2) is 1 second ago, etc.
-            voice.bufferIndex -= sliceIdx * sampleRate;
-          }
+        const voice = this.getInactiveVoice();
+        if (voice) {
+          voice.init(
+            sampleRate, duration, instrumentId, note, velocity, style,
+            a, d, s, r, buffer, isBus, this.busWriteIndex,
+            playbackRate, sliceIdx, glideTime, targetNote,
+            pan, orbitAngle, orbitDist, fxDryWet
+          );
         }
-
-        // Fast-forward voice if it was supposed to start in the past
-        const offset = currentCtxTime - event.time;
-        if (offset > 0) {
-          // In a real implementation we'd advance the voice state, 
-          // but for small block sizes (128 samples = ~3ms), it's negligible.
-        }
-
-        this.activeVoices.push(voice);
       }
+
+      readIdx++;
     }
+
+    Atomics.store(this.int32View, 1, readIdx);
 
     // Clear outputs
     for (let c = 0; c < dryOut.length; c++) dryOut[c].fill(0);
@@ -389,17 +436,17 @@ class TenutoProcessor extends AudioWorkletProcessor {
     const tempL = new Float32Array(frameCount);
     const tempR = new Float32Array(frameCount);
 
-    for (let v = this.activeVoices.length - 1; v >= 0; v--) {
-      const voice = this.activeVoices[v];
+    for (let v = 0; v < this.voices.length; v++) {
+      const voice = this.voices[v];
+      if (!voice.active) continue;
+
       tempL.fill(0);
       tempR.fill(0);
       
-      voice.process(tempL, tempR, 0, frameCount, currentCtxTime, this.activeAutomations);
+      voice.process(tempL, tempR, 0, frameCount, currentCtxTime, this.automations);
       
-      const fx = voice.event.fx;
-      const dryWet = fx ? fx.dryWet : 0;
-      const dryLevel = 1 - dryWet;
-      const wetLevel = dryWet;
+      const dryLevel = 1 - voice.fxDryWet;
+      const wetLevel = voice.fxDryWet;
 
       for (let i = 0; i < frameCount; i++) {
         if (dryOut.length > 0) dryOut[0][i] += tempL[i] * dryLevel;
@@ -410,13 +457,16 @@ class TenutoProcessor extends AudioWorkletProcessor {
           if (wetOut.length > 1) wetOut[1][i] += tempR[i] * wetLevel;
         }
       }
+    }
 
-      if (!voice.active) {
-        this.activeVoices.splice(v, 1);
+    // Cleanup old automations
+    for (let a = 0; a < this.automations.length; a++) {
+      const auto = this.automations[a];
+      if (auto.active && currentCtxTime > auto.time + auto.duration) {
+        auto.active = false;
       }
     }
 
-    this.currentFrame += frameCount;
     return true;
   }
 }

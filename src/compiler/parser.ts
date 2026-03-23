@@ -251,6 +251,12 @@ export class Parser {
     throw new ParserError(`Unexpected meta value token: ${token.value}`, token.line, token.column);
   }
 
+  /**
+   * Parses the token stream into an Abstract Syntax Tree (AST).
+   * 
+   * @returns The generated AST representing the Tenuto source code.
+   * @throws {ParserError} If a syntax error is encountered during parsing.
+   */
   public parse(): AST {
     measureCache.clear();
     this.match(TokenType.Keyword, 'tenuto');

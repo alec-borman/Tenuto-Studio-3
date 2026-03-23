@@ -15,27 +15,24 @@ What if you could capture every nuance of a musical composition—the pitches, r
 
 ---
 
-## 🎧 In‑Depth Audio Explanation
+## 🧠 Philosophy: Strict Decoupling
 
-Listen to a detailed walkthrough of Tenuto 3.0, its architecture, and why it’s the definitive system of record for music.
+Tenuto Studio 3.0 is built on a philosophy of **strict decoupling** between the compiler (`tenutoc`) and the physics layer (the audio engine).
 
-[▶️ Click here to play the audio](https://alec-borman.github.io/Tenuto-Studio-3/demo.html)
+*   **The Compiler (`tenutoc`)**: Operates as a pure function. Written in Rust and compiled to WebAssembly, it takes a Tenuto source string and deterministically outputs an Abstract Syntax Tree (AST) and a linear timeline of events. It has no concept of audio, DOM, or time.
+*   **The Physics Layer (Audio Engine)**: A highly optimized, zero-allocation WebAudio engine that acts purely as a consumer of the compiler's output. It never assumes the internal state of the compiler, ensuring memory safety and immutability.
 
-If the player doesn’t load, you can also [⬇️ download the file directly](https://media.githubusercontent.com/media/alec-borman/Tenuto-Studio-3/main/Tenuto_3%20Deep%20Dive%20into%20Why%20it's%20important.m4a).
+This black-box mindset guarantees that the language can be ported to any environment (browser, native, server) without dragging along a monolithic audio engine.
 
 ---
 
-## ✨ Why Tenuto is What You’ve Been Looking For
+## 🏗️ Architecture: Zero-Allocation DSP
 
-### 🧠 For AI Researchers & Developers
-- **Token‑efficient**: The stateful cursor and macros reduce source code by up to 90% compared to MusicXML, making it ideal for large language models.
-- **Semantically rich**: Concepts like `slur`, `glide`, `slice`, and `pan` are first‑class citizens—the model learns musical intent, not just low‑level MIDI events.
-- **Bidirectional translation**: Built‑in decompiler turns MIDI back into clean, idiomatic Tenuto, enabling data augmentation and fine‑tuning on massive existing datasets.
-- **Extensible**: Custom attributes (`.x_`) and linter plugins let you adapt the language to new research directions without breaking the core.
+The Tenuto 3.0 audio engine is engineered for uncompromising performance and stability, utilizing cutting-edge web technologies:
 
-### 🎹 For Composers & Arrangers
-- **Write music, not markup**: `c4:4 d e f` is a C‑major scale. No angle brackets, no `<note>` tags.
-- **Strict Decoupling / Black Box Mindset**: The core compiler (`tenutoc`) operates as a pure function. The frontend never assumes the internal state of the Wasm compiler, ensuring memory safety and immutability.
+*   **Wasm Compilation**: The core language parser and compiler are written in Rust and compiled to WebAssembly (`wasm32-unknown-unknown`), providing near-native execution speed for complex macro expansions and tuplet math.
+*   **SharedArrayBuffer & Atomics**: The main thread and the `AudioWorklet` communicate via a lock-free Ring Buffer backed by a `SharedArrayBuffer`. The main thread serializes audio events into binary float data, and the worklet reads them using `Atomics` for deterministic, thread-safe synchronization.
+*   **Zero-Allocation Object Pool**: The `AudioWorklet` pre-allocates a fixed pool of `Voice` and `Automation` objects during initialization. During playback, it exclusively recycles these objects via an `.init()` method. The `new` keyword is never used in the audio thread, completely eliminating Garbage Collection (GC) pauses and ensuring sample-accurate timing.
 
 ---
 
@@ -59,27 +56,36 @@ tenuto "3.0" {
 }
 ```
 
-## 🚀 Quick Start
+---
 
-### Building the Project
+## 🚀 Quick Start
 
 The Tenuto Studio 3.0 core consists of a Rust-based compiler (`tenutoc`) compiled to WebAssembly, and a TypeScript frontend.
 
-1. **Build the Rust Compiler (Wasm):**
-   ```bash
-   cd tenutoc
-   wasm-pack build --target web --out-dir ../public/pkg
-   ```
+### Prerequisites
+*   [Node.js](https://nodejs.org/) (v18+)
+*   [Rust](https://www.rust-lang.org/tools/install)
+*   [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/)
 
-2. **Install Frontend Dependencies:**
-   ```bash
-   npm install
-   ```
+### 1. Build the Rust Compiler (Wasm)
+Compile the Rust core into WebAssembly for the browser:
+```bash
+npm run build:wasm
+```
+*(This runs `cd tenutoc && wasm-pack build --target web --out-dir ../public/pkg`)*
 
-3. **Start the Development Server:**
-   ```bash
-   npm run dev
-   ```
+### 2. Install Frontend Dependencies
+```bash
+npm install
+```
+
+### 3. Start the Development Server
+Run the Vite dev server (which also builds the Wasm automatically):
+```bash
+npm run dev:all
+```
+
+---
 
 ## 📚 Documentation
 

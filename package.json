@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
+    "build:wasm": "cd tenutoc && wasm-pack build --target web --out-dir ../public/pkg",
+    "dev:all": "npm run build:wasm && vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",

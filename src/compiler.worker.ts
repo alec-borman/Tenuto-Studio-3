@@ -216,18 +216,12 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
             if (wasmMemory && typeof alloc_buffer === 'function' && typeof free_buffer === 'function' && typeof decompile_midi_zero_copy === 'function') {
                 const len = midiBytesArray.length;
                 
-                // 1. Allocate memory inside the Rust Wasm instance
                 const ptr = alloc_buffer(len);
-                
                 try {
-                    // 2. Create a view into that specific memory block and copy our MIDI bytes in
                     const memoryView = new Uint8Array(wasmMemory.buffer, ptr, len);
                     memoryView.set(midiBytesArray);
-                    
-                    // 3. Tell Rust to decompile the bytes at that pointer
                     tenutoCode = decompile_midi_zero_copy(ptr, len);
                 } finally {
-                    // 4. Free the memory to prevent leaks
                     free_buffer(ptr, len);
                 }
             } else {
