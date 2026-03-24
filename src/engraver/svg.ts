@@ -78,30 +78,34 @@ export class SVGEngraver {
       }
     }
 
+    const SYSTEM_START_X = 85; // Create visual breathing room for clefs
+
     // Render staff lines for each part
     parts.forEach((partId, partIndex) => {
       const staffY = partIndex * staffSpacing;
       
-      // 5 lines
+      const totalSystemWidth = system.measures.reduce((sum, m) => sum + m.width, SYSTEM_START_X);
+      
+      // 5 lines (Added crispEdges for 4k sharpness)
       for (let i = 0; i < 5; i++) {
         const y = staffY + i * 10;
-        svg += `<line x1="0" y1="${y}" x2="${system.measures.reduce((sum, m) => sum + m.width, 0)}" y2="${y}" class="staff-line" />`;
+        svg += `<line x1="0" y1="${y}" x2="${totalSystemWidth}" y2="${y}" class="staff-line" shape-rendering="crispEdges" />`;
       }
       
-      // Clef (Unicode Fallback)
+      // Clef Polish
       const isTreble = partIndex === 0;
       const clefChar = isTreble ? "𝄞" : "𝄢";
-      const clefY = isTreble ? staffY + 32 : staffY + 28;
-      svg += `<text x="10" y="${clefY}" class="clef">${clefChar}</text>`;
+      const clefY = isTreble ? staffY + 34 : staffY + 28;
+      svg += `<text x="15" y="${clefY}" class="clef" font-size="46px">${clefChar}</text>`;
       
       // Barlines at start of system
-      let startBarline = `<line x1="0" y1="${staffY}" x2="0" y2="${staffY + 40}" class="barline" />`;
+      let startBarline = `<line x1="0" y1="${staffY}" x2="0" y2="${staffY + 40}" class="barline" shape-rendering="crispEdges" />`;
       if (system.measures[0] && system.measures[0].measure.markers?.includes('|:')) {
         startBarline = `
-          <line x1="0" y1="${staffY}" x2="0" y2="${staffY + 40}" class="barline" stroke-width="3" />
-          <line x1="4" y1="${staffY}" x2="4" y2="${staffY + 40}" class="barline" stroke-width="1" />
-          <circle cx="8" cy="${staffY + 15}" r="2" fill="#000" />
-          <circle cx="8" cy="${staffY + 25}" r="2" fill="#000" />
+          <line x1="0" y1="${staffY}" x2="0" y2="${staffY + 40}" class="barline" stroke-width="3" shape-rendering="crispEdges" />
+          <line x1="6" y1="${staffY}" x2="6" y2="${staffY + 40}" class="barline" stroke-width="1" shape-rendering="crispEdges" />
+          <circle cx="12" cy="${staffY + 15}" r="2" fill="#000" />
+          <circle cx="12" cy="${staffY + 25}" r="2" fill="#000" />
         `;
       }
       svg += startBarline;
@@ -111,7 +115,7 @@ export class SVGEngraver {
     const bottomSkyline = new Skyline(system.measures.reduce((sum, m) => sum + m.width, 0) + 100, 10, false);
 
     // Render measures
-    let currentX = 0;
+    let currentX = SYSTEM_START_X; // Start rendering notes AFTER the clef margin
     for (const measure of system.measures) {
       svg += `<g transform="translate(${currentX}, 0)">`;
       

@@ -150,8 +150,27 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
             const lintDiagnostics = linter.lint(ast);
 
             // 2. If valid, run the TS compiler to generate MIDI and SVG
-            const midiGen = new MIDIGenerator();
-            const midiBytes = midiGen.generate(unrolledAst);
+            let midiBytes: Uint8Array;
+            if (typeof compile_tenuto_to_midi === 'function' && isWasmLoaded) {
+                const wasmView = compile_tenuto_to_midi(processedCode);
+                if (wasmView instanceof Uint8Array) {
+                    midiBytes = new Uint8Array(wasmView);
+                    if (typeof free_buffer === 'function' && wasmView.byteOffset !== undefined) {
+                        free_buffer(wasmView.byteOffset, wasmView.length);
+                    }
+                } else {
+                    midiBytes = wasmView;
+                }
+                
+                // Fallback to TS compiler if WASM returns empty/mock MIDI
+                if (midiBytes.length <= 26) {
+                    const midiGen = new MIDIGenerator();
+                    midiBytes = midiGen.generate(unrolledAst);
+                }
+            } else {
+                const midiGen = new MIDIGenerator();
+                midiBytes = midiGen.generate(unrolledAst);
+            }
             
             // Generate audio events directly from AST
             const audioGen = new AudioEventGenerator();
@@ -223,7 +242,18 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
                 try {
                     const memoryView = new Uint8Array(wasmMemory.buffer, ptr, len);
                     memoryView.set(midiBytesArray);
-                    tenutoCode = decompile_midi_zero_copy(ptr, len);
+                    const result = decompile_midi_zero_copy(ptr, len);
+                    if (result instanceof Uint8Array) {
+                        // Explicitly copy data to a new Uint8Array to detach from Wasm memory
+                        const safeCopy = new Uint8Array(result);
+                        // Immediately call free_buffer on the original pointer
+                        if (typeof free_buffer === 'function' && result.byteOffset !== undefined) {
+                            free_buffer(result.byteOffset, result.length);
+                        }
+                        tenutoCode = new TextDecoder().decode(safeCopy);
+                    } else {
+                        tenutoCode = result;
+                    }
                 } finally {
                     free_buffer(ptr, len);
                 }

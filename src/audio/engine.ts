@@ -1,8 +1,6 @@
 import * as Tone from 'tone';
 import { Soundfont } from 'smplr';
 import { AudioEvent } from '../compiler/audio';
-// @ts-ignore
-import processorUrl from './processor.ts?worker&url';
 
 const PATCH_MAP: Record<string, string> = {
   'gm_piano': 'acoustic_grand_piano',
@@ -63,11 +61,31 @@ export class AudioEngine {
   public async init(instruments: string[] = []) {
     if (this.isInitialized) return;
     
-    if (!this.context) this.context = Tone.getContext().rawContext as AudioContext;
-    if (!this.context) throw new Error("BaseAudioContext not found. Tone.js may not be initialized.");
+    // 1. Force Native AudioContext to bypass iframe constructor mismatch
+    if (!this.context) {
+      const NativeAudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      this.context = new NativeAudioContext();
+      Tone.setContext(this.context);
+      await Tone.start();
+    }
     
+    if (this.context.state === 'suspended') {
+      await this.context.resume();
+    }
+
+    // 2. Dual-Environment Check (Cloud Preview vs Local Native)
+    const isCrossOriginIsolated = typeof SharedArrayBuffer !== 'undefined' && window.crossOriginIsolated;
+
+    if (!isCrossOriginIsolated) {
+      console.warn("[TEDP] SharedArrayBuffer blocked by environment (Likely Cloud Iframe). Advanced DSP Worklet disabled. Falling back to Tone.js main-thread scheduling.");
+      this.isInitialized = true;
+      return;
+    }
+
+    // 3. High-Performance Worklet Initialization (Local/Secure Context)
     try {
-      await this.context.audioWorklet.addModule(processorUrl);
+      const workletUrl = new URL('./processor.ts', import.meta.url).href;
+      await this.context.audioWorklet.addModule(workletUrl, { type: 'module' });
       
       const numOutputs = Math.max(2, instruments.length);
       const outputChannelCount = Array(numOutputs).fill(2);
@@ -80,11 +98,11 @@ export class AudioEngine {
 
       const MAX_EVENTS = 1024;
       const FLOATS_PER_EVENT = 24;
+      
       this.sharedBuffer = new SharedArrayBuffer(8 + MAX_EVENTS * FLOATS_PER_EVENT * 4);
       this.int32View = new Int32Array(this.sharedBuffer, 0, 2);
       this.floatView = new Float32Array(this.sharedBuffer, 8);
 
-      // Send instrument mapping to worklet
       this.workletNode.port.postMessage({
         type: 'INIT',
         sharedBuffer: this.sharedBuffer,
@@ -95,12 +113,8 @@ export class AudioEngine {
       this.dryGain = this.context.createGain();
       this.wetGain = this.context.createGain();
 
-      // Load a simple impulse response for reverb
       this.generateSyntheticIR();
-
-      // We will route outputs dynamically in loadInstruments
       
-      // Listen for messages from worklet
       this.workletNode.port.onmessage = (e) => {
         if (e.data.type === 'AUTOMATION') {
           this.handleAutomation(e.data.event);
@@ -274,7 +288,17 @@ export class AudioEngine {
     }
     
     if (!this.workletNode) {
-      console.warn("AudioWorkletNode not initialized. Audio playback may fail.");
+      console.warn("AudioWorkletNode not initialized. Routing all events to fallback oscillator.");
+      // Route ALL events to the fallback oscillator so we get sound in previews
+      const adjustedEvents = events.map(e => {
+        let time = e.time;
+        if (e.push) time -= e.push / 1000000;
+        if (e.pull) time += e.pull / 1000000;
+        return { ...e, time: startTime + time };
+      });
+      for (const event of adjustedEvents) {
+        this.scheduleSoundfont(event); 
+      }
       return;
     }
     

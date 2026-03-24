@@ -16,15 +16,13 @@ const DEFAULT_CODE = `tenuto "3.0" {
   def fxTrack "FX Return" style=concrete src="bus://synth1" env=@{ a: 10ms, d: 1s, s: 100%, r: 1s }
   
   measure 1 {
-    |:
     synth1: c5:8.stacc d5:8.stacc e5:8.stacc f5:8.stacc g5:8.stacc f5:8.stacc e5:8.stacc d5:8.stacc |
-    fxTrack: c4:1.slice(2).reverse |
+    fxTrack: c4:1.slice(2).reverse
   }
   
   measure 2 {
     synth1: c5:4.marc e5:4.marc g5:4.marc c6:4.marc |
-    fxTrack: c4:2.slice(4) c4:2.reverse |
-    :|
+    fxTrack: c4:2.slice(4) c4:2.reverse
   }
 }`;
 
@@ -116,10 +114,11 @@ export default function App() {
   };
 
   useEffect(() => {
-    // Initialize Compiler Worker
-    workerRef.current = new Worker(new URL('./compiler.worker.ts', import.meta.url), { type: 'module' });
+    // 1. Initialize local worker instances to protect against Strict Mode overwrites
+    const localCompilerWorker = new Worker(new URL('./compiler.worker.ts', import.meta.url), { type: 'module' });
+    workerRef.current = localCompilerWorker;
     
-    workerRef.current.onmessage = (e: MessageEvent<CompilerResponse>) => {
+    localCompilerWorker.onmessage = (e: MessageEvent<CompilerResponse>) => {
       const { type, payload, status: workerStatus, error } = e.data;
       
       if (type === 'STATUS') {
@@ -135,46 +134,25 @@ export default function App() {
         irRef.current = payload.ir;
         rawCodeRef.current = payload.rawCode;
         
-        // Parse the compiled MIDI bytes and send to WebGL renderer
-        if (renderWorkerRef.current && payload.midi) {
-          try {
-            import('@tonejs/midi').then(async ({ Midi }) => {
-              const midi = new Midi(payload.midi);
-              const notes: any[] = [];
-              
-              // Clear previous audio part
-              audioEventsRef.current = [];
-              
-              // Ensure AudioContext is available
-              const context = Tone.getContext().rawContext as AudioContext;
-              
-              // Load instruments
-              for (let i = 0; i < midi.tracks.length; i++) {
-                const track = midi.tracks[i];
-                track.notes.forEach(note => {
-                  notes.push({
-                    time: note.time,
-                    duration: note.duration,
-                    midi: note.midi
-                  });
-                });
-              }
-              
-              // Decoupled: Send notes to visualizer immediately, regardless of audio hardware state
-              renderWorkerRef.current?.postMessage({ type: 'UPDATE_NOTES', notes });
-              
-              if (payload.audioEvents && audioEngineRef.current) {
-                audioEventsRef.current = payload.audioEvents;
-                try {
-                  await audioEngineRef.current.loadInstruments(payload.audioEvents, payload.ast.defs);
-                } catch (err) {
-                  console.warn("Failed to load instruments on boot. Context may be suspended.", err);
-                }
-              }
-            });
-          } catch (err) {
-            console.error("Failed to parse MIDI for WebGL playback:", err);
-          }
+        // Send IR directly to WebGL renderer (Bypassing binary MIDI parser)
+        if (renderWorkerRef.current && payload.audioEvents) {
+          // 1. Sync the audio engine state
+          audioEventsRef.current = payload.audioEvents;
+
+          // 2. Map the deterministic IR straight to WebGL geometry
+          const visualNotes = payload.audioEvents
+            .filter((e: any) => e.note !== undefined && e.type !== 'automation')
+            .map((e: any) => ({
+              time: e.time,
+              duration: e.duration,
+              midi: e.note
+            }));
+
+          // 3. Dispatch to GPU
+          renderWorkerRef.current.postMessage({ 
+            type: 'UPDATE_NOTES', 
+            notes: visualNotes 
+          });
         }
       } else if (type === 'ERROR') {
         setStatus('Compilation failed');
@@ -197,12 +175,19 @@ export default function App() {
       }
     };
 
-    // Initialize Render Worker
-    renderWorkerRef.current = new Worker('/render-worker.js');
+    // Initialize Render Worker locally
+    const localRenderWorker = new Worker(new URL('./render-worker.js', import.meta.url), { type: 'module' });
+    renderWorkerRef.current = localRenderWorker;
     
     let canvas: HTMLCanvasElement | null = null;
+    let resizeObserver: ResizeObserver | null = null;
     
     if (canvasContainerRef.current) {
+      // Clear any existing canvases (Strict Mode protection)
+      while (canvasContainerRef.current.firstChild) {
+        canvasContainerRef.current.removeChild(canvasContainerRef.current.firstChild);
+      }
+      
       // Dynamically create canvas to avoid transferControlToOffscreen issues in React Strict Mode
       canvas = document.createElement('canvas');
       canvas.className = "absolute inset-0 w-full h-full";
@@ -219,16 +204,33 @@ export default function App() {
       } catch (err) {
         console.error("Failed to transfer control to offscreen canvas:", err);
       }
+
+      resizeObserver = new ResizeObserver((entries) => {
+        for (let entry of entries) {
+          const { width, height } = entry.contentRect;
+          if (width > 0 && height > 0) {
+            renderWorkerRef.current?.postMessage({
+              type: 'RESIZE',
+              width,
+              height
+            });
+          }
+        }
+      });
+      resizeObserver.observe(canvasContainerRef.current);
     }
 
     return () => {
-      workerRef.current?.terminate();
-      renderWorkerRef.current?.terminate();
+      localCompilerWorker.terminate();
+      localRenderWorker.terminate();
       if (canvas && canvasContainerRef.current) {
         canvasContainerRef.current.removeChild(canvas);
       }
       if (audioEngineRef.current) {
         audioEngineRef.current.stopAll();
+      }
+      if (resizeObserver) {
+        resizeObserver.disconnect();
       }
     };
   }, []);
@@ -373,6 +375,10 @@ export default function App() {
     
     if (audioEngineRef.current) {
       audioEngineRef.current.stopAll();
+      // Ensure instruments are loaded before playback (since we deferred this from boot)
+      setStatus('Loading instruments...');
+      await audioEngineRef.current.loadInstruments(audioEventsRef.current);
+      setStatus('Playing...');
     }
     
     const startPlayback = (startTime: number) => {
@@ -607,9 +613,9 @@ export default function App() {
         </div>
 
         {/* Right Panel: Visualizers */}
-        <div className="w-1/2 flex flex-col bg-zinc-50">
+        <div className="w-1/2 flex flex-col bg-zinc-50 min-h-0">
           {/* Top Half: SVG Engraver (Phase 8) */}
-          <div className="flex-1 flex flex-col border-b border-zinc-200">
+          <div className="flex-1 flex flex-col border-b border-zinc-200 min-h-0">
             <div className="flex items-center justify-between px-4 py-2 bg-zinc-200 border-b border-zinc-300 text-zinc-700">
               <div className="flex items-center gap-2">
                 <FileCode size={16} />
@@ -623,7 +629,7 @@ export default function App() {
                 Download MusicXML
               </button>
             </div>
-            <div className="flex-1 overflow-auto p-8 flex flex-col items-center gap-8 bg-zinc-100 shadow-inner">
+            <div className="flex-1 overflow-auto p-8 flex flex-col items-center gap-8 bg-zinc-100 shadow-inner min-h-0">
               {svgPages.length > 0 ? (
                 svgPages.map((pageSvg, idx) => (
                   <div 
@@ -641,13 +647,16 @@ export default function App() {
           </div>
           
           {/* Bottom Half: WebGL Piano Roll */}
-          <div className="h-64 flex flex-col bg-zinc-950">
+          <div className="h-64 shrink-0 flex flex-col bg-zinc-950 relative z-10">
             <div className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border-b border-zinc-800 text-zinc-300">
               <Play size={16} />
               <span className="text-sm font-medium">WebGL Playback Engine</span>
             </div>
-            <div className="flex-1 relative" ref={canvasContainerRef}>
-              {/* Playhead overlay */}
+            <div className="flex-1 relative">
+              {/* Dedicated container for the native canvas. React will not mutate this. */}
+              <div ref={canvasContainerRef} className="absolute inset-0 z-0"></div>
+              
+              {/* Playhead overlay rendered on top */}
               {isPlaying && (
                 <div ref={playheadRef} className="absolute top-0 bottom-0 w-px bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] z-10" style={{ left: '15%' }}>
                   <div ref={beatLabelRef} className="absolute top-0 -translate-x-1/2 bg-emerald-500 text-zinc-950 text-[10px] font-bold px-1 rounded-b">

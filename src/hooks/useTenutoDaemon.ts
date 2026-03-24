@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-export type ConnectionStatus = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED';
+export type ConnectionStatus = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'OFFLINE';
 
 export interface LinkState {
   tempo: number;
@@ -15,14 +15,22 @@ export interface DaemonMessage {
 
 export const useTenutoDaemon = (url: string = 'ws://127.0.0.1:8080') => {
   const [status, setStatus] = useState<ConnectionStatus>('DISCONNECTED');
+  const [isDaemonOffline, setIsDaemonOffline] = useState(false);
   const [linkState, setLinkState] = useState<LinkState | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const backoffRef = useRef<number>(1000);
+  const retryCountRef = useRef<number>(0);
+  const MAX_RETRIES = 3;
   const onMessageCallbacks = useRef<Set<(msg: DaemonMessage) => void>>(new Set());
 
   const connect = useCallback(() => {
     if (socketRef.current?.readyState === WebSocket.OPEN) return;
+    if (retryCountRef.current >= MAX_RETRIES) {
+      setStatus('OFFLINE');
+      setIsDaemonOffline(true);
+      return;
+    }
 
     setStatus('CONNECTING');
     const ws = new WebSocket(url);
@@ -31,7 +39,9 @@ export const useTenutoDaemon = (url: string = 'ws://127.0.0.1:8080') => {
     ws.onopen = () => {
       console.log('Connected to Tenuto Daemon');
       setStatus('CONNECTED');
+      setIsDaemonOffline(false);
       backoffRef.current = 1000;
+      retryCountRef.current = 0;
       if (reconnectTimeoutRef.current) {
         window.clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
@@ -51,21 +61,29 @@ export const useTenutoDaemon = (url: string = 'ws://127.0.0.1:8080') => {
     };
 
     ws.onclose = () => {
-      console.log('Disconnected from Tenuto Daemon');
+      if (status === 'CONNECTED') {
+        console.log('Disconnected from Tenuto Daemon');
+      }
       setStatus('DISCONNECTED');
       socketRef.current = null;
       
-      // Exponential backoff
-      const nextBackoff = Math.min(backoffRef.current * 2, 30000);
-      backoffRef.current = nextBackoff;
-      reconnectTimeoutRef.current = window.setTimeout(connect, nextBackoff);
+      if (retryCountRef.current < MAX_RETRIES) {
+        retryCountRef.current += 1;
+        // Exponential backoff
+        const nextBackoff = Math.min(backoffRef.current * 2, 30000);
+        backoffRef.current = nextBackoff;
+        reconnectTimeoutRef.current = window.setTimeout(connect, nextBackoff);
+      } else {
+        setStatus('OFFLINE');
+        setIsDaemonOffline(true);
+      }
     };
 
     ws.onerror = (err) => {
-      console.error('WebSocket error', err);
+      // Fail quietly without console.error
       ws.close();
     };
-  }, [url]);
+  }, [url, status]);
 
   useEffect(() => {
     connect();
@@ -90,6 +108,7 @@ export const useTenutoDaemon = (url: string = 'ws://127.0.0.1:8080') => {
 
   return {
     status,
+    isDaemonOffline,
     linkState,
     sendMessage,
     addMessageListener
