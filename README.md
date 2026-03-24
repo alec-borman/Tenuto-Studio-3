@@ -40,6 +40,21 @@ As we transition from our current beta to the final 3.0 release, we are systemat
 
 ---
 
+## 🚀 Deployment: Cloudflare Pages + R2 Strategy
+
+Tenuto Studio 3.0 is designed to be deployed globally with **$0 hosting costs** while maintaining high-performance audio capabilities.
+
+We leverage **Cloudflare Pages** for static hosting. The repository includes `public/_headers` and `public/_redirects` files to configure the necessary HTTP headers:
+
+*   **`Cross-Origin-Opener-Policy: same-origin`**
+*   **`Cross-Origin-Embedder-Policy: require-corp`**
+
+These headers ensure the application runs in a **Cross-Origin Isolated** context, which is a strict browser requirement for enabling `SharedArrayBuffer`. This guarantees that anyone who forks the repository and deploys to Cloudflare gets the high-performance, zero-allocation AudioWorklet ring buffer for free.
+
+For asset storage (like soundfonts and concrete audio samples), we utilize **Cloudflare R2**, providing S3-compatible object storage with zero egress fees, ensuring our audio engine can stream massive sample libraries globally without incurring bandwidth costs.
+
+---
+
 ## 💻 Language in Action
 
 Tenuto 3.0 introduces stateful cursor logic and dot-chained attributes for precise control over musical articulation and expression.
