@@ -263,6 +263,7 @@ class Voice {
 
 class TenutoProcessor extends AudioWorkletProcessor {
   private voices: Voice[] = [];
+  private pendingNotes: any[] = []; // Waiting room for postMessage notes
   private automations: Automation[] = [];
   private audioBuffers: Record<number, Float32Array[]> = {};
   private isPlaying: boolean = false;
@@ -298,15 +299,21 @@ class TenutoProcessor extends AudioWorkletProcessor {
     this.port.onmessage = (e) => {
       if (e.data.type === 'INIT') {
         this.sharedBuffer = e.data.sharedBuffer;
-        this.int32View = new Int32Array(this.sharedBuffer, 0, 2);
-        this.floatView = new Float32Array(this.sharedBuffer, 8);
+        if (this.sharedBuffer) {
+          this.int32View = new Int32Array(this.sharedBuffer, 0, 2);
+          this.floatView = new Float32Array(this.sharedBuffer, 8);
+        }
         this.isPlaying = true;
+      } else if (e.data.type === 'NOTE') {
+        // Push to pending queue instead of instant init
+        this.pendingNotes.push(e.data.event);
       } else if (e.data.type === 'LOAD_BUFFER') {
         this.audioBuffers[e.data.bufferId] = e.data.buffer;
       } else if (e.data.type === 'WAKE') {
         this.isPlaying = true;
       } else if (e.data.type === 'STOP') {
         this.isPlaying = false;
+        this.pendingNotes = [];
         for (let i = 0; i < this.voices.length; i++) this.voices[i].active = false;
         for (let i = 0; i < this.automations.length; i++) this.automations[i].active = false;
       }
@@ -328,12 +335,9 @@ class TenutoProcessor extends AudioWorkletProcessor {
   }
 
   process(inputs: Float32Array[][], outputs: Float32Array[][], parameters: Record<string, Float32Array>) {
-    if (!this.int32View || !this.floatView) return true;
+    if (!this.isPlaying) return true;
 
-    const dryOut = outputs[0];
-    const wetOut = outputs.length > 1 ? outputs[1] : outputs[0];
-
-    const frameCount = dryOut[0].length;
+    const frameCount = outputs[0][0].length;
     
     const input = inputs[0];
     if (input && input.length > 0) {
@@ -353,111 +357,128 @@ class TenutoProcessor extends AudioWorkletProcessor {
     const currentCtxTime = currentTime;
     const endCtxTime = currentCtxTime + frameCount / sampleRate;
 
-    // Read from ring buffer
-    let writeIdx = Atomics.load(this.int32View, 0);
-    let readIdx = Atomics.load(this.int32View, 1);
-
-    while (readIdx < writeIdx) {
-      const offset = (readIdx % this.MAX_EVENTS) * this.FLOATS_PER_EVENT;
-      const eventTime = this.floatView[offset + 1];
-
-      // If event is in the future, stop reading
-      if (eventTime >= endCtxTime) {
-        break;
-      }
-
-      const type = this.floatView[offset + 0];
-      const duration = this.floatView[offset + 2];
-      const instrumentId = this.floatView[offset + 3];
-
-      if (type === 1) { // Automation
-        const controller = this.floatView[offset + 4];
-        const startValue = this.floatView[offset + 5];
-        const endValue = this.floatView[offset + 15];
-        const curve = this.floatView[offset + 20];
-
-        const auto = this.getInactiveAutomation();
-        if (auto) {
-          auto.init(eventTime, duration, instrumentId, controller, startValue, endValue, curve);
-        }
-      } else { // Note
-        const note = this.floatView[offset + 4];
-        const velocity = this.floatView[offset + 5];
-        const style = this.floatView[offset + 6];
-        const a = this.floatView[offset + 7];
-        const d = this.floatView[offset + 8];
-        const s = this.floatView[offset + 9];
-        const r = this.floatView[offset + 10];
-        const bufferId = this.floatView[offset + 11];
-        const playbackRate = this.floatView[offset + 12];
-        const sliceIdx = this.floatView[offset + 13];
-        const glideTime = this.floatView[offset + 14];
-        const targetNote = this.floatView[offset + 15];
-        const pan = this.floatView[offset + 16];
-        const orbitAngle = this.floatView[offset + 17];
-        const orbitDist = this.floatView[offset + 18];
-        const fxDryWet = this.floatView[offset + 19];
-
-        let buffer: Float32Array[] | undefined;
-        let isBus = false;
-
-        if (style === 1) { // concrete
-          if (bufferId === -1) {
-            buffer = this.busBuffer;
-            isBus = true;
-          } else if (bufferId > 0) {
-            buffer = this.audioBuffers[bufferId];
-          }
-        }
-
+    // 1. Process Pending Messages (The Clock Sync)
+    for (let i = this.pendingNotes.length - 1; i >= 0; i--) {
+      const msg = this.pendingNotes[i];
+      if (currentCtxTime >= msg.startTime) {
         const voice = this.getInactiveVoice();
         if (voice) {
           voice.init(
-            sampleRate, duration, instrumentId, note, velocity, style,
-            a, d, s, r, buffer, isBus, this.busWriteIndex,
-            playbackRate, sliceIdx, glideTime, targetNote,
-            pan, orbitAngle, orbitDist, fxDryWet
+            sampleRate, msg.duration, msg.instrument_id, msg.note, msg.velocity, msg.style,
+            msg.a, msg.d, msg.s, msg.r, 
+            msg.bufferId === -1 ? this.busBuffer : this.audioBuffers[msg.bufferId],
+            msg.bufferId === -1, this.busWriteIndex,
+            msg.playbackRate || 1, msg.sliceIdx || 0, msg.glideTime || 0, msg.targetNote || 0,
+            msg.pan || 0, msg.orbitAngle || 0, msg.orbitDist || 0, msg.fxDryWet || 0
           );
         }
+        this.pendingNotes.splice(i, 1);
+      }
+    }
+
+    // 2. Process Ring Buffer (If available)
+    if (this.int32View && this.floatView) {
+      let writeIdx = Atomics.load(this.int32View, 0);
+      let readIdx = Atomics.load(this.int32View, 1);
+
+      while (readIdx < writeIdx) {
+        const offset = (readIdx % this.MAX_EVENTS) * this.FLOATS_PER_EVENT;
+        const eventTime = this.floatView[offset + 1];
+
+        // If event is in the future, stop reading
+        if (eventTime >= endCtxTime) {
+          break;
+        }
+
+        const type = this.floatView[offset + 0];
+        const duration = this.floatView[offset + 2];
+        const instrumentId = this.floatView[offset + 3];
+
+        if (type === 1) { // Automation
+          const controller = this.floatView[offset + 4];
+          const startValue = this.floatView[offset + 5];
+          const endValue = this.floatView[offset + 15];
+          const curve = this.floatView[offset + 20];
+
+          const auto = this.getInactiveAutomation();
+          if (auto) {
+            auto.init(eventTime, duration, instrumentId, controller, startValue, endValue, curve);
+          }
+        } else { // Note
+          const note = this.floatView[offset + 4];
+          const velocity = this.floatView[offset + 5];
+          const style = this.floatView[offset + 6];
+          const a = this.floatView[offset + 7];
+          const d = this.floatView[offset + 8];
+          const s = this.floatView[offset + 9];
+          const r = this.floatView[offset + 10];
+          const bufferId = this.floatView[offset + 11];
+          const playbackRate = this.floatView[offset + 12];
+          const sliceIdx = this.floatView[offset + 13];
+          const glideTime = this.floatView[offset + 14];
+          const targetNote = this.floatView[offset + 15];
+          const pan = this.floatView[offset + 16];
+          const orbitAngle = this.floatView[offset + 17];
+          const orbitDist = this.floatView[offset + 18];
+          const fxDryWet = this.floatView[offset + 19];
+
+          let buffer: Float32Array[] | undefined;
+          let isBus = false;
+
+          if (style === 1) { // concrete
+            if (bufferId === -1) {
+              buffer = this.busBuffer;
+              isBus = true;
+            } else if (bufferId > 0) {
+              buffer = this.audioBuffers[bufferId];
+            }
+          }
+
+          const voice = this.getInactiveVoice();
+          if (voice) {
+            voice.init(
+              sampleRate, duration, instrumentId, note, velocity, style,
+              a, d, s, r, buffer, isBus, this.busWriteIndex,
+              playbackRate, sliceIdx, glideTime, targetNote,
+              pan, orbitAngle, orbitDist, fxDryWet
+            );
+          }
+        }
+
+        const DEBUG = true;
+        if (DEBUG && readIdx % 16 === 0) console.log(`[DSP] Read Head: ${readIdx} | Active Voices: ${this.voices.filter(v => v.active).length}`);
+
+        readIdx++;
       }
 
-      const DEBUG = true;
-      if (DEBUG && readIdx % 16 === 0) console.log(`[DSP] Read Head: ${readIdx} | Active Voices: ${this.voices.filter(v => v.active).length}`);
-
-      readIdx++;
+      Atomics.store(this.int32View, 1, readIdx);
     }
-
-    Atomics.store(this.int32View, 1, readIdx);
 
     // Clear outputs
-    for (let c = 0; c < dryOut.length; c++) dryOut[c].fill(0);
-    if (outputs.length > 1) {
-      for (let c = 0; c < wetOut.length; c++) wetOut[c].fill(0);
+    for (let outIdx = 0; outIdx < outputs.length; outIdx++) {
+      if (outputs[outIdx]) {
+        for (let c = 0; c < outputs[outIdx].length; c++) {
+          outputs[outIdx][c].fill(0);
+        }
+      }
     }
 
-    // Render voices
-    const tempL = new Float32Array(frameCount);
-    const tempR = new Float32Array(frameCount);
-
+    // 3. Render Voices to CORRECT outputs
     for (let v = 0; v < this.voices.length; v++) {
       const voice = this.voices[v];
       if (!voice.active) continue;
 
-      tempL.fill(0);
-      tempR.fill(0);
-      
+      const tempL = new Float32Array(frameCount);
+      const tempR = new Float32Array(frameCount);
       voice.process(tempL, tempR, 0, frameCount, currentCtxTime, this.automations);
-      
-      const dryLevel = 1 - voice.fxDryWet;
-      const wetLevel = voice.fxDryWet;
 
-      for (let i = 0; i < frameCount; i++) {
-        if (dryOut.length > 0) dryOut[0][i] += tempL[i] * dryLevel;
-        if (dryOut.length > 1) dryOut[1][i] += tempR[i] * dryLevel;
-        
-        if (outputs.length > 1) {
-          if (wetOut.length > 0) wetOut[0][i] += tempL[i] * wetLevel;
-          if (wetOut.length > 1) wetOut[1][i] += tempR[i] * wetLevel;
+      // FIX: Write to the specific output index for this instrument
+      // If instrument_id is 1, it maps to outputs[0] (0-indexed)
+      const outIdx = Math.max(0, voice.instrumentId - 1);
+      if (outputs[outIdx]) {
+        for (let i = 0; i < frameCount; i++) {
+          outputs[outIdx][0][i] += tempL[i];
+          if (outputs[outIdx].length > 1) outputs[outIdx][1][i] += tempR[i];
         }
       }
     }

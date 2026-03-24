@@ -76,33 +76,30 @@ export class AudioEngine {
     // 2. Dual-Environment Check (Cloud Preview vs Local Native)
     const isCrossOriginIsolated = typeof SharedArrayBuffer !== 'undefined' && window.crossOriginIsolated;
 
-    if (!isCrossOriginIsolated) {
-      console.warn("[TEDP] SharedArrayBuffer blocked by environment (Likely Cloud Iframe). Advanced DSP Worklet disabled. Falling back to Tone.js main-thread scheduling.");
-      this.isInitialized = true;
-      return;
-    }
-
-    // 3. High-Performance Worklet Initialization (Local/Secure Context)
     try {
       const workletUrl = new URL('./processor.ts', import.meta.url).href;
-      await this.context.audioWorklet.addModule(workletUrl, { type: 'module' });
+      await this.context.audioWorklet.addModule(workletUrl, { type: 'module' } as any);
       
       const numOutputs = Math.max(2, instruments.length);
-      const outputChannelCount = Array(numOutputs).fill(2);
-      
       this.workletNode = new AudioWorkletNode(this.context, 'tenuto-processor', {
         numberOfInputs: 1,
         numberOfOutputs: numOutputs,
-        outputChannelCount
+        outputChannelCount: Array(numOutputs).fill(2)
       });
 
-      const MAX_EVENTS = 1024;
-      const FLOATS_PER_EVENT = 24;
-      
-      this.sharedBuffer = new SharedArrayBuffer(8 + MAX_EVENTS * FLOATS_PER_EVENT * 4);
-      this.int32View = new Int32Array(this.sharedBuffer, 0, 2);
-      this.floatView = new Float32Array(this.sharedBuffer, 8);
+      // Only allocate high-performance buffer if the environment allows it
+      if (isCrossOriginIsolated) {
+        const MAX_EVENTS = 1024;
+        const FLOATS_PER_EVENT = 24;
+        this.sharedBuffer = new SharedArrayBuffer(8 + MAX_EVENTS * FLOATS_PER_EVENT * 4);
+        this.int32View = new Int32Array(this.sharedBuffer, 0, 2);
+        this.floatView = new Float32Array(this.sharedBuffer, 8);
+        console.log("[TEDP] High-Performance RingBuffer Initialized.");
+      } else {
+        console.warn("[TEDP] SharedArrayBuffer blocked. Falling back to postMessage transport.");
+      }
 
+      // Send INIT message (sharedBuffer will be null if blocked)
       this.workletNode.port.postMessage({
         type: 'INIT',
         sharedBuffer: this.sharedBuffer,
@@ -152,7 +149,7 @@ export class AudioEngine {
   public async loadInstruments(events: AudioEvent[], defs?: any[]) {
     const instruments = Array.from(new Set(events.map(e => e.instrument)));
     await this.init(instruments);
-    const promises: Promise<void>[] = [];
+    const promises: Promise<any>[] = [];
     
     for (let i = 0; i < instruments.length; i++) {
       const instrument = instruments[i];
@@ -288,17 +285,7 @@ export class AudioEngine {
     }
     
     if (!this.workletNode) {
-      console.warn("AudioWorkletNode not initialized. Routing all events to fallback oscillator.");
-      // Route ALL events to the fallback oscillator so we get sound in previews
-      const adjustedEvents = events.map(e => {
-        let time = e.time;
-        if (e.push) time -= e.push / 1000000;
-        if (e.pull) time += e.pull / 1000000;
-        return { ...e, time: startTime + time };
-      });
-      for (const event of adjustedEvents) {
-        this.scheduleSoundfont(event); 
-      }
+      console.warn("AudioWorkletNode not initialized. Audio playback may fail.");
       return;
     }
     
@@ -322,121 +309,155 @@ export class AudioEngine {
     // Now serialize non-standard events to SharedArrayBuffer
     const workletEvents = adjustedEvents.filter(e => e.style !== 'standard');
     
-    if (workletEvents.length > 0 && this.sharedBuffer && this.int32View && this.floatView) {
+    if (workletEvents.length > 0) {
+      const useRingBuffer = !!(this.sharedBuffer && this.int32View && this.floatView);
       const MAX_EVENTS = 1024;
       const FLOATS_PER_EVENT = 24;
       
-      let writeIdx = Atomics.load(this.int32View, 0);
-      const readIdx = Atomics.load(this.int32View, 1);
+      let writeIdx = 0;
+      let readIdx = 0;
+      if (useRingBuffer && this.int32View) {
+        writeIdx = Atomics.load(this.int32View, 0);
+        readIdx = Atomics.load(this.int32View, 1);
+      }
       
       for (const event of workletEvents) {
-        if (writeIdx - readIdx >= MAX_EVENTS) {
-          console.warn("AudioWorklet ring buffer full, dropping events");
-          break;
-        }
-        
-        const offset = (writeIdx % MAX_EVENTS) * FLOATS_PER_EVENT;
-        
-        // 0: type (0=note, 1=automation)
-        this.floatView[offset + 0] = event.type === 'automation' ? 1 : 0;
-        // 1: time
-        this.floatView[offset + 1] = event.time;
-        // 2: duration
-        this.floatView[offset + 2] = event.duration;
-        // 3: instrument_id
-        this.floatView[offset + 3] = this.getInstrumentId(event.instrument);
-        
-        if (event.type === 'automation') {
-          // 4: controller_id (0=pan, 1=volume, 2=pitchbend)
-          let ctrl = 0;
-          if (event.controller === 'volume') ctrl = 1;
-          else if (event.controller === 'pitchbend') ctrl = 2;
-          this.floatView[offset + 4] = ctrl;
-          // 5: startValue
-          this.floatView[offset + 5] = event.startValue || 0;
-          // 15: endValue
-          this.floatView[offset + 15] = event.endValue || 0;
-          // 20: curve (0=linear, 1=exponential)
-          this.floatView[offset + 20] = event.curve === 'exponential' ? 1 : 0;
-        } else {
-          // 4: note
-          this.floatView[offset + 4] = event.note || 0;
-          // 5: velocity
-          this.floatView[offset + 5] = event.velocity || 80;
-          // 6: style (0=synth, 1=concrete)
-          this.floatView[offset + 6] = event.style === 'concrete' ? 1 : 0;
-          
-          // env
-          let a = 0.01, d = 0.1, s = 0.5, r = 0.1;
-          if (event.env) {
-            a = parseFloat(event.env.a || '0.01');
-            if (event.env.a?.endsWith('ms')) a /= 1000;
-            d = parseFloat(event.env.d || '0.1');
-            if (event.env.d?.endsWith('ms')) d /= 1000;
-            s = parseFloat(event.env.s || '50') / 100;
-            r = parseFloat(event.env.r || '0.1');
-            if (event.env.r?.endsWith('ms')) r /= 1000;
+        if (useRingBuffer && this.int32View && this.floatView) {
+          if (writeIdx - readIdx >= MAX_EVENTS) {
+            console.warn("AudioWorklet ring buffer full, dropping events");
+            break;
           }
-          this.floatView[offset + 7] = a;
-          this.floatView[offset + 8] = d;
-          this.floatView[offset + 9] = s;
-          this.floatView[offset + 10] = r;
           
-          // 11: buffer_id
-          this.floatView[offset + 11] = this.getBufferId(event.src);
+          const offset = (writeIdx % MAX_EVENTS) * FLOATS_PER_EVENT;
           
-          // modifiers
-          let playbackRate = 1;
-          let sliceIdx = 0;
-          let glideTime = 0;
-          let targetNote = 0;
+          // 0: type (0=note, 1=automation)
+          this.floatView[offset + 0] = event.type === 'automation' ? 1 : 0;
+          // 1: time
+          this.floatView[offset + 1] = event.time;
+          // 2: duration
+          this.floatView[offset + 2] = event.duration;
+          // 3: instrument_id
+          this.floatView[offset + 3] = this.getInstrumentId(event.instrument);
           
-          if (event.modifiers) {
-            for (const mod of event.modifiers) {
-              if (mod === 'reverse') playbackRate = -1;
-              else if (mod.startsWith('slice(')) {
-                const match = mod.match(/slice\(([\d.]+)\)/);
-                if (match) sliceIdx = parseInt(match[1], 10) - 1;
-              } else if (mod.startsWith('glide(')) {
-                const match = mod.match(/glide\(([\d.]+)(ms|s)?\)/);
-                if (match) {
-                  const val = parseFloat(match[1]);
-                  const unit = match[2] || 'ms';
-                  glideTime = unit === 's' ? val : val / 1000;
-                  targetNote = (event as any).nextNote || 0;
+          if (event.type === 'automation') {
+            // 4: controller_id (0=pan, 1=volume, 2=pitchbend)
+            let ctrl = 0;
+            if (event.controller === 'volume') ctrl = 1;
+            else if (event.controller === 'pitchbend') ctrl = 2;
+            this.floatView[offset + 4] = ctrl;
+            // 5: startValue
+            this.floatView[offset + 5] = event.startValue || 0;
+            // 15: endValue
+            this.floatView[offset + 15] = event.endValue || 0;
+            // 20: curve (0=linear, 1=exponential)
+            this.floatView[offset + 20] = event.curve === 'exponential' ? 1 : 0;
+          } else {
+            // 4: note
+            this.floatView[offset + 4] = event.note || 0;
+            // 5: velocity
+            this.floatView[offset + 5] = event.velocity || 80;
+            // 6: style (0=synth, 1=concrete)
+            this.floatView[offset + 6] = event.style === 'concrete' ? 1 : 0;
+            
+            // env
+            let a = 0.01, d = 0.1, s = 0.5, r = 0.1;
+            if (event.env) {
+              a = parseFloat(event.env.a || '0.01');
+              if (event.env.a?.endsWith('ms')) a /= 1000;
+              d = parseFloat(event.env.d || '0.1');
+              if (event.env.d?.endsWith('ms')) d /= 1000;
+              s = parseFloat(event.env.s || '50') / 100;
+              r = parseFloat(event.env.r || '0.1');
+              if (event.env.r?.endsWith('ms')) r /= 1000;
+            }
+            this.floatView[offset + 7] = a;
+            this.floatView[offset + 8] = d;
+            this.floatView[offset + 9] = s;
+            this.floatView[offset + 10] = r;
+            
+            // 11: buffer_id
+            this.floatView[offset + 11] = this.getBufferId(event.src);
+            
+            // modifiers
+            let playbackRate = 1;
+            let sliceIdx = 0;
+            let glideTime = 0;
+            let targetNote = 0;
+            
+            if (event.modifiers) {
+              for (const mod of event.modifiers) {
+                if (mod === 'reverse') playbackRate = -1;
+                else if (mod.startsWith('slice(')) {
+                  const match = mod.match(/slice\(([\d.]+)\)/);
+                  if (match) sliceIdx = parseInt(match[1], 10) - 1;
+                } else if (mod.startsWith('glide(')) {
+                  const match = mod.match(/glide\(([\d.]+)(ms|s)?\)/);
+                  if (match) {
+                    const val = parseFloat(match[1]);
+                    const unit = match[2] || 'ms';
+                    glideTime = unit === 's' ? val : val / 1000;
+                    targetNote = (event as any).nextNote || 0;
+                  }
                 }
               }
             }
+            
+            this.floatView[offset + 12] = playbackRate;
+            this.floatView[offset + 13] = sliceIdx;
+            this.floatView[offset + 14] = glideTime;
+            this.floatView[offset + 15] = targetNote;
+            
+            // 16: pan
+            let pan = event.pan !== undefined ? event.pan : 0;
+            let orbitAngle = 0;
+            let orbitDist = 0;
+            if (event.orbit) {
+              orbitAngle = event.orbit.angle;
+              orbitDist = event.orbit.dist;
+            }
+            this.floatView[offset + 16] = pan;
+            this.floatView[offset + 17] = orbitAngle;
+            this.floatView[offset + 18] = orbitDist;
+            
+            // 19: fx_dryWet
+            this.floatView[offset + 19] = event.fx ? (event.fx.dryWet || 0) : 0;
           }
           
-          this.floatView[offset + 12] = playbackRate;
-          this.floatView[offset + 13] = sliceIdx;
-          this.floatView[offset + 14] = glideTime;
-          this.floatView[offset + 15] = targetNote;
-          
-          // 16: pan
-          let pan = event.pan !== undefined ? event.pan : 0;
-          let orbitAngle = 0;
-          let orbitDist = 0;
-          if (event.orbit) {
-            orbitAngle = event.orbit.angle;
-            orbitDist = event.orbit.dist;
-          }
-          this.floatView[offset + 16] = pan;
-          this.floatView[offset + 17] = orbitAngle;
-          this.floatView[offset + 18] = orbitDist;
-          
-          // 19: fx_dryWet
-          this.floatView[offset + 19] = event.fx ? (event.fx.dryWet || 0) : 0;
+          writeIdx++;
+        } else {
+          // Fallback Transport: Direct Message (Works in AI Studio Preview)
+          this.workletNode.port.postMessage({
+            type: 'NOTE',
+            event: {
+              startTime: event.time, // The absolute context time
+              duration: event.duration,
+              instrument_id: this.getInstrumentId(event.instrument),
+              note: event.note || 0,
+              velocity: event.velocity || 80,
+              style: event.style === 'concrete' ? 1 : 0,
+              a: parseFloat(event.env?.a || '0.01') / (event.env?.a?.endsWith('ms') ? 1000 : 1),
+              d: parseFloat(event.env?.d || '0.1') / (event.env?.d?.endsWith('ms') ? 1000 : 1),
+              s: parseFloat(event.env?.s || '50') / 100,
+              r: parseFloat(event.env?.r || '0.1') / (event.env?.r?.endsWith('ms') ? 1000 : 1),
+              bufferId: this.getBufferId(event.src),
+              playbackRate: 1, // Add logic for reverse/slice if needed
+              sliceIdx: 0,
+              glideTime: 0,
+              targetNote: (event as any).nextNote || 0,
+              pan: event.pan || 0,
+              orbitAngle: event.orbit?.angle || 0,
+              orbitDist: event.orbit?.dist || 0,
+              fxDryWet: event.fx?.dryWet || 0
+            }
+          });
         }
-        
-        writeIdx++;
       }
       
-      Atomics.store(this.int32View, 0, writeIdx);
-      
-      const DEBUG = true;
-      if (DEBUG) console.log(`[TEDP] SharedBuffer Write Head: ${writeIdx} | Start: ${startTime.toFixed(3)}s`);
+      if (useRingBuffer && this.int32View) {
+        Atomics.store(this.int32View, 0, writeIdx);
+        const DEBUG = true;
+        if (DEBUG) console.log(`[TEDP] SharedBuffer Write Head: ${writeIdx} | Start: ${startTime.toFixed(3)}s`);
+      }
       
       this.workletNode.port.postMessage({ type: 'WAKE' });
     }
