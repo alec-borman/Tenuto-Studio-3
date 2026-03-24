@@ -103,50 +103,80 @@ Regardless of OS, you must have the following installed:
 
 -----
 
-#### 2\. OS-Specific Setup
+#### 2\. Windows (PowerShell) Build Flow
 
-**Windows (PowerShell)**
-
-  * **Build Tools:** Ensure "Desktop development with C++" is installed via [Visual Studio Installer](https://www.google.com/search?q=https://visualstudio.microsoft.com/visual-cpp-build-tools/).
-  * **Execution Policy:** If `wasm-pack` is blocked, run:
-    `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
-
-**Linux (Ubuntu/Debian)**
-
-  * **System Deps:** `sudo apt update && sudo apt install build-essential pkg-config libssl-dev`
-  * **Wasm Target:** `rustup target add wasm32-unknown-unknown`
-
-**macOS (Homebrew)**
-
-  * **Build Tools:** Install Xcode Command Line Tools: `xcode-select --install`
-  * **Dependencies:** `brew install nodejs wasm-pack`
+**1. Install Build Tools:** Ensure "Desktop development with C++" is installed via [Visual Studio Installer](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+**2. Set Execution Policy:** If `wasm-pack` is blocked, run:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+**3. Compile the Wasm Core (`tenutoc`):**
+```powershell
+cd tenutoc
+wasm-pack build --target web --out-dir ../public/pkg
+cd ..
+```
+**4. Start the Native Daemon (`tenutod`):** Open a new terminal and run:
+```powershell
+cd tenutod
+cargo run
+```
+**5. Launch the Web Studio:** In your original terminal, install dependencies and start the dev server:
+```powershell
+npm install
+npm run dev -- --force
+```
 
 -----
 
-#### 3\. The Three-Step Build Pipeline
+#### 3\. Linux (Ubuntu/Debian) Build Flow
 
-You must build the components in this specific order to avoid import errors in Vite.
-
-**Step A: Compile the Wasm Core (`tenutoc`)**
-Vite looks for the compiler in `public/pkg/`. Run this from the root:
-
+**1. Install System Dependencies:**
+```bash
+sudo apt update && sudo apt install build-essential pkg-config libssl-dev
+```
+**2. Add Wasm Target:**
+```bash
+rustup target add wasm32-unknown-unknown
+```
+**3. Compile the Wasm Core (`tenutoc`):**
 ```bash
 cd tenutoc
 wasm-pack build --target web --out-dir ../public/pkg
 cd ..
 ```
-
-**Step B: Start the Native Daemon (`tenutod`)**
-The daemon handles MIDI hardware and Ableton Link. Open a new terminal:
-
+**4. Start the Native Daemon (`tenutod`):** Open a new terminal and run:
 ```bash
 cd tenutod
 cargo run
 ```
+**5. Launch the Web Studio:** In your original terminal, install dependencies and start the dev server:
+```bash
+npm install
+npm run dev -- --force
+```
 
-**Step C: Launch the Web Studio**
-Install dependencies and start the dev server from the root:
+-----
 
+#### 4\. macOS (Homebrew) Build Flow
+
+**1. Install Build Tools & Dependencies:**
+```bash
+xcode-select --install
+brew install nodejs wasm-pack
+```
+**2. Compile the Wasm Core (`tenutoc`):**
+```bash
+cd tenutoc
+wasm-pack build --target web --out-dir ../public/pkg
+cd ..
+```
+**3. Start the Native Daemon (`tenutod`):** Open a new terminal and run:
+```bash
+cd tenutod
+cargo run
+```
+**4. Launch the Web Studio:** In your original terminal, install dependencies and start the dev server:
 ```bash
 npm install
 npm run dev -- --force
