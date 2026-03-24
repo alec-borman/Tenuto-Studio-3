@@ -239,15 +239,18 @@ export class SVGEngraver {
             }
           }
           
-          const lineData = { startX: firstPe.x, startY, endX: lastPe.x, endY, stemUp, hasCrossStaff };
+          // Exact SMuFL optical offsets for stem connections
+          const getStemX = (pe: PositionedEvent, isUp: boolean) => pe.x + (isUp ? 10.8 : -0.8);
+          const actualStartX = getStemX(firstPe, stemUp);
+          const actualEndX = getStemX(lastPe, stemUp);
+
+          const lineData = { startX: actualStartX, startY, endX: actualEndX, endY, stemUp, hasCrossStaff };
           for (const pe of group) {
             beamGroupLines.set(pe, lineData as any);
           }
           
-          // Draw primary beam
-          // For knee beams, we might need to adjust stemOffset per note, but we'll use a middle value
-          const stemOffset = 8; 
-          svg += `<line x1="${firstPe.x + stemOffset}" y1="${startY}" x2="${lastPe.x + stemOffset}" y2="${endY}" stroke="#000" stroke-width="4" />`;
+          // Draw primary beam with proper musical thickness and square caps to flush the edges
+          svg += `<line x1="${actualStartX}" y1="${startY}" x2="${actualEndX}" y2="${endY}" stroke="#1a1a1a" stroke-width="4.5" stroke-linecap="square" />`;
         }
         
         for (let i = 0; i < partData.positionedEvents.length; i++) {
@@ -411,11 +414,11 @@ export class SVGEngraver {
       const maxLedgers = 15; // Max 15 ledger lines (~150px)
       if (y > targetStaffY + 40 && y <= targetStaffY + 40 + maxLedgers * 10) {
         for (let ly = targetStaffY + 50; ly <= y; ly += 10) {
-          svg += `<line x1="${x - 6}" y1="${ly}" x2="${x + 16}" y2="${ly}" class="ledger" />`;
+          svg += `<line x1="${x - 3}" y1="${ly}" x2="${x + 13}" y2="${ly}" class="ledger" stroke-width="1.2" shape-rendering="crispEdges" />`;
         }
       } else if (y < targetStaffY && y >= targetStaffY - maxLedgers * 10) {
         for (let ly = targetStaffY - 10; ly >= y; ly -= 10) {
-          svg += `<line x1="${x - 6}" y1="${ly}" x2="${x + 16}" y2="${ly}" class="ledger" />`;
+          svg += `<line x1="${x - 3}" y1="${ly}" x2="${x + 13}" y2="${ly}" class="ledger" stroke-width="1.2" shape-rendering="crispEdges" />`;
         }
       }
     }
@@ -490,7 +493,7 @@ export class SVGEngraver {
       }
 
       if (isBeamed && beamLine) {
-        const t = (x - beamLine.startX) / (beamLine.endX - beamLine.startX || 1);
+        const t = (stemX - beamLine.startX) / (beamLine.endX - beamLine.startX || 1);
         stemEndY = beamLine.startY + t * (beamLine.endY - beamLine.startY);
       }
 
@@ -579,7 +582,19 @@ export class SVGEngraver {
             resolvedY = topSkyline.drop((measureX + x) / 10, 1.5, 1.5, artY);
           }
           
-          svg += `<text x="${x + 5}" y="${resolvedY + (direction === 1 ? 10 : 0)}" font-family="serif" font-size="14px" text-anchor="middle" ${fontStyle}>${artSymbol}</text>`;
+          if (mod === 'marc') {
+            const my = direction === 1 ? resolvedY + 6 : resolvedY - 2;
+            const dirFlip = direction === 1 ? -1 : 1;
+            svg += `<polygon points="${x},${my+4*dirFlip} ${x+5},${my-4*dirFlip} ${x+10},${my+4*dirFlip} ${x+5},${my+1*dirFlip}" fill="#1a1a1a" />`;
+          } else if (mod === 'staccato' || mod === 'stacc') {
+            const sy = direction === 1 ? resolvedY + 4 : resolvedY - 4;
+            svg += `<circle cx="${x+5}" cy="${sy}" r="2" fill="#1a1a1a" />`;
+          } else if (mod === 'tenuto') {
+            const ty = direction === 1 ? resolvedY + 4 : resolvedY - 4;
+            svg += `<line x1="${x}" y1="${ty}" x2="${x+10}" y2="${ty}" stroke="#1a1a1a" stroke-width="1.5" shape-rendering="crispEdges" />`;
+          } else {
+            svg += `<text x="${x + 5}" y="${resolvedY + (direction === 1 ? 10 : 0)}" font-family="serif" font-size="14px" text-anchor="middle" ${fontStyle}>${artSymbol}</text>`;
+          }
         } else if (mod === 'crescendo' || mod === 'diminuendo') {
           const startX = x + 5;
           const endX = nextX ? nextX - 5 : x + 30;
