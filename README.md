@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>Tenuto Studio 3.0</h1>
+  <h1>Tenuto Studio 3.0: The Semantic Conductor</h1>
   <p><b>The Definitive System of Record for Music</b></p>
   <p><i>A CRM, but for Musical Intent</i></p>
   <br/>
@@ -11,12 +11,28 @@
 
 What if you could capture every nuance of a musical composition—the pitches, rhythms, articulations, lyrics, micro‑timing, synthesizer envelopes, sample slices, and even the routing of effects—in a single, human‑readable text file? What if that same file could be instantly rendered as a beautifully engraved score, a perfectly quantized MIDI performance, a full‑fidelity audio mix, and a live‑coding session synchronized with Ableton Link?
 
-**Tenuto is that file.** It is a deterministic, declarative domain‑specific language that acts as the **system of record** for musical intent. Like a Customer Relationship Management (CRM) system consolidates all client interactions, Tenuto consolidates every aspect of a musical work—from the ink on the page to the electricity in the speakers—into a single, version‑controllable, AI‑friendly format.
+**Tenuto is that file.** It is a deterministic, declarative domain‑specific language that acts as the **system of record** for musical intent. It unifies the discrete logic of classical notation with the continuous physics of modern DSP into a single, human-readable "Narrow Waist" protocol. Like a Customer Relationship Management (CRM) system consolidates all client interactions, Tenuto consolidates every aspect of a musical work—from the ink on the page to the electricity in the speakers—into a single, version‑controllable, AI‑friendly format.
 
 ### The "Narrow Waist" Philosophy
 Tenuto Studio 3.0 is built on a philosophy of **strict decoupling** between the pure-function compiler and the physics/rendering layers. 
 *   **The Compiler**: Operates as a pure function, taking a Tenuto source string and deterministically outputting an Abstract Syntax Tree (AST) and a linear timeline of events (Intermediate Representation). It has no concept of audio, DOM, or time.
 *   **The Physics & Rendering Layers**: The AudioWorklet engine, TEAS SVG Engraver, and external OSC daemons act purely as consumers of the compiler's output. They never assume the internal state of the compiler, ensuring memory safety, immutability, and infinite portability.
+
+### 🏗️ The Ecosystem Architecture
+- **tenutoc (The Brain):** A pure-function Rust compiler (wasm32) that transforms Tenuto source into a mathematical Intermediate Representation (IR).
+- **Tenuto Web Studio (The Interface):** A high-performance IDE utilizing Monaco, WebGL-accelerated visualization, and a zero-allocation WebAudio engine.
+- **tenutod (The Muscle):** A Rust-based daemon for real-time hardware orchestration, sACN theatrical lighting, and Ableton Link synchronization.
+- **TEAS Engraver (The Ink):** A professional-grade SVG layout engine utilizing spring-rod models and Elaine Gould’s engraving standards.
+
+---
+
+## 🧠 Intelligence Layer: Addendum I (RAG)
+
+To maintain a 10x development velocity as the codebase scales to 50k+ lines, Tenuto 3.0 implements **Retrieval-Augmented Generation (RAG)**:
+
+- **Semantic Indexing:** AST-aware chunking via Tree-sitter ensures logical blocks (Rust impls/TS classes) remain intact.
+- **Vector Orchestration:** Local LanceDB indexing allows for surgical retrieval of "Narrow Waist" logic, bypassing peripheral UI noise.
+- **Domain Tagging:** Every vector is tagged by architectural domain (`compiler`, `audio`, `visual`, `infra`), ensuring the AI collaborator remains focused on the relevant layer.
 
 ---
 
@@ -37,21 +53,17 @@ As we transition from our current beta to the final 3.0 release, we are systemat
 *   **Phase 1: The Rust Port:** Migrating the finalized TypeScript LL(1) parser and semantic analyzer entirely into the Rust `tenutoc` crate using `logos` and `chumsky`. This will establish Rust as the absolute single source of truth for the Tenuto language, maximizing performance and safety.
 *   **Phase 2: TEAS Engraver Polish:** Expanding the layout engine to support compound time signatures, advanced SMuFL glyphs (clefs, key signatures, dynamics), and cross-measure structural repeats for commercial-grade sheet music rendering.
 *   **Phase 3: Daemon Orchestration:** Hardening the `tenutod` Rust daemon for UDP/OSC delegation and Ableton Link synchronization, enabling seamless live algorithmic performances and hardware integration.
+*   **Phase 4: Intelligent Infrastructure:** Implement the `tenuto-indexer` CLI for AST-aware LanceDB generation, and hard-wire the gPTP Grandmaster clock in `tenutod` for microsecond-accurate theatrical execution.
 
 ---
 
-## 🚀 Deployment: Cloudflare Pages + R2 Strategy
+## 🚀 Deployment & Sovereignty: Cloudflare Pages + R2 Strategy
 
-Tenuto Studio 3.0 is designed to be deployed globally with **$0 hosting costs** while maintaining high-performance audio capabilities.
+Tenuto Studio 3.0 is designed for **Zero-Cost, High-Fidelity Distribution**:
 
-We leverage **Cloudflare Pages** for static hosting. The repository includes `public/_headers` and `public/_redirects` files to configure the necessary HTTP headers:
-
-*   **`Cross-Origin-Opener-Policy: same-origin`**
-*   **`Cross-Origin-Embedder-Policy: require-corp`**
-
-These headers ensure the application runs in a **Cross-Origin Isolated** context, which is a strict browser requirement for enabling `SharedArrayBuffer`. This guarantees that anyone who forks the repository and deploys to Cloudflare gets the high-performance, zero-allocation AudioWorklet ring buffer for free.
-
-For asset storage (like soundfonts and concrete audio samples), we utilize **Cloudflare R2**, providing S3-compatible object storage with zero egress fees, ensuring our audio engine can stream massive sample libraries globally without incurring bandwidth costs.
+*   **Hosting:** Distributed via Cloudflare Pages with native COOP/COEP headers to unlock `SharedArrayBuffer` multithreading.
+*   **Assets:** Large-scale acoustic samples are served from Cloudflare R2 with explicit CORP headers for security-perimeter penetration.
+*   **Sovereignty:** 100% client-side execution via Wasm; no server-side "Gatekeepers" required for compilation or rendering.
 
 ---
 
