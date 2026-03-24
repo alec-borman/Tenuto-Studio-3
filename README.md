@@ -89,32 +89,76 @@ tenuto "3.0" {
 
 ---
 
-## 🚀 Quick Start
+### 🚀 Advanced Development Setup
 
-The Tenuto Studio 3.0 core consists of a Rust-based compiler (`tenutoc`) compiled to WebAssembly, and a TypeScript frontend.
+Tenuto Studio 3.0 is a polyglot monorepo. Follow the steps below based on your operating system.
 
-### Prerequisites
-*   [Node.js](https://nodejs.org/) (v18+)
-*   [Rust](https://www.rust-lang.org/tools/install)
-*   [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/)
+#### 1\. General Prerequisites
 
-### 1. Build the Rust Compiler (Wasm)
-Compile the Rust core into WebAssembly for the browser:
+Regardless of OS, you must have the following installed:
+
+  * **Node.js** (v18+ LTS)
+  * **Rust** (Stable) via [rustup.rs](https://rustup.rs)
+  * **wasm-pack**: `cargo install wasm-pack`
+
+-----
+
+#### 2\. OS-Specific Setup
+
+**Windows (PowerShell)**
+
+  * **Build Tools:** Ensure "Desktop development with C++" is installed via [Visual Studio Installer](https://www.google.com/search?q=https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+  * **Execution Policy:** If `wasm-pack` is blocked, run:
+    `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
+
+**Linux (Ubuntu/Debian)**
+
+  * **System Deps:** `sudo apt update && sudo apt install build-essential pkg-config libssl-dev`
+  * **Wasm Target:** `rustup target add wasm32-unknown-unknown`
+
+**macOS (Homebrew)**
+
+  * **Build Tools:** Install Xcode Command Line Tools: `xcode-select --install`
+  * **Dependencies:** `brew install nodejs wasm-pack`
+
+-----
+
+#### 3\. The Three-Step Build Pipeline
+
+You must build the components in this specific order to avoid import errors in Vite.
+
+**Step A: Compile the Wasm Core (`tenutoc`)**
+Vite looks for the compiler in `public/pkg/`. Run this from the root:
+
 ```bash
-npm run build:wasm
+cd tenutoc
+wasm-pack build --target web --out-dir ../public/pkg
+cd ..
 ```
-*(This runs `cd tenutoc && wasm-pack build --target web --out-dir ../public/pkg`)*
 
-### 2. Install Frontend Dependencies
+**Step B: Start the Native Daemon (`tenutod`)**
+The daemon handles MIDI hardware and Ableton Link. Open a new terminal:
+
+```bash
+cd tenutod
+cargo run
+```
+
+**Step C: Launch the Web Studio**
+Install dependencies and start the dev server from the root:
+
 ```bash
 npm install
+npm run dev -- --force
 ```
 
-### 3. Start the Development Server
-Run the Vite dev server (which also builds the Wasm automatically):
-```bash
-npm run dev:all
-```
+-----
+
+### 🧪 Troubleshooting the Build
+
+  * **`tenutoc.js` not found:** This means Step A failed or was skipped. Ensure the `public/pkg` folder contains the `.wasm` and `.js` files.
+  * **WebSocket Errors:** Ensure the Native Daemon (`tenutod`) is actually running on port `8080`.
+  * **MIME Type (Wasm):** If the browser refuses to load the Wasm, ensure you are using the Vite dev server and not opening the `index.html` file directly.
 
 ---
 
