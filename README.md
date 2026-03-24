@@ -7,32 +7,36 @@
 
 ---
 
-## 🎵 One Source of Truth for Your Musical Ideas
+## 🎵 The Vision: System of Record for Music
 
 What if you could capture every nuance of a musical composition—the pitches, rhythms, articulations, lyrics, micro‑timing, synthesizer envelopes, sample slices, and even the routing of effects—in a single, human‑readable text file? What if that same file could be instantly rendered as a beautifully engraved score, a perfectly quantized MIDI performance, a full‑fidelity audio mix, and a live‑coding session synchronized with Ableton Link?
 
 **Tenuto is that file.** It is a deterministic, declarative domain‑specific language that acts as the **system of record** for musical intent. Like a Customer Relationship Management (CRM) system consolidates all client interactions, Tenuto consolidates every aspect of a musical work—from the ink on the page to the electricity in the speakers—into a single, version‑controllable, AI‑friendly format.
 
----
-
-## 🧠 Philosophy: Strict Decoupling
-
-Tenuto Studio 3.0 is built on a philosophy of **strict decoupling** between the compiler (`tenutoc`) and the physics layer (the audio engine).
-
-*   **The Compiler (`tenutoc`)**: Operates as a pure function. Written in Rust and compiled to WebAssembly, it takes a Tenuto source string and deterministically outputs an Abstract Syntax Tree (AST) and a linear timeline of events. It has no concept of audio, DOM, or time.
-*   **The Physics Layer (Audio Engine)**: A highly optimized, zero-allocation WebAudio engine that acts purely as a consumer of the compiler's output. It never assumes the internal state of the compiler, ensuring memory safety and immutability.
-
-This black-box mindset guarantees that the language can be ported to any environment (browser, native, server) without dragging along a monolithic audio engine.
+### The "Narrow Waist" Philosophy
+Tenuto Studio 3.0 is built on a philosophy of **strict decoupling** between the pure-function compiler and the physics/rendering layers. 
+*   **The Compiler**: Operates as a pure function, taking a Tenuto source string and deterministically outputting an Abstract Syntax Tree (AST) and a linear timeline of events (Intermediate Representation). It has no concept of audio, DOM, or time.
+*   **The Physics & Rendering Layers**: The AudioWorklet engine, TEAS SVG Engraver, and external OSC daemons act purely as consumers of the compiler's output. They never assume the internal state of the compiler, ensuring memory safety, immutability, and infinite portability.
 
 ---
 
-## 🏗️ Architecture: Zero-Allocation DSP
+## 🏗️ Current State: The Iterative Hybrid Architecture
 
-The Tenuto 3.0 audio engine is engineered for uncompromising performance and stability, utilizing cutting-edge web technologies:
+We are currently in an active, pragmatic, and highly iterative development phase. To achieve rapid iteration, hot-reloading, and instantaneous UI feedback during this MVP phase, we are employing a **Hybrid Architecture**:
 
-*   **Wasm Compilation**: The core language parser and compiler are written in Rust and compiled to WebAssembly (`wasm32-unknown-unknown`), providing near-native execution speed for complex macro expansions and tuplet math.
-*   **SharedArrayBuffer & Atomics**: The main thread and the `AudioWorklet` communicate via a lock-free Ring Buffer backed by a `SharedArrayBuffer`. The main thread serializes audio events into binary float data, and the worklet reads them using `Atomics` for deterministic, thread-safe synchronization.
-*   **Zero-Allocation Object Pool**: The `AudioWorklet` pre-allocates a fixed pool of `Voice` and `Automation` objects during initialization. During playback, it exclusively recycles these objects via an `.init()` method. The `new` keyword is never used in the audio thread, completely eliminating Garbage Collection (GC) pauses and ensuring sample-accurate timing.
+*   **TypeScript Scaffolding:** Currently, the TypeScript frontend handles the heavy lifting of AST parsing and semantic analysis. This is intentional *scaffolding* that allows us to rapidly prototype language features, test grammar changes, and immediately visualize the results in the browser.
+*   **Rust Core (`tenutoc`):** The Rust core (compiled to WebAssembly) is already handling massive-scale tasks like zero-copy MIDI decompilation (via reverse Bresenham/LZ77 macro extraction) and acts as our robust fallback compiler.
+*   **Live AudioWorklet Engine:** The physics layer is fully operational. The AudioWorklet engine utilizes a zero-allocation object pool and a `SharedArrayBuffer` ring buffer to achieve glitch-free, phase-locked execution, completely eliminating Garbage Collection (GC) pauses.
+
+---
+
+## 🗺️ The Roadmap: Turning Scaffolding into Steel
+
+As we transition from our current beta to the final 3.0 release, we are systematically replacing our rapid-prototyping scaffolding with enterprise-grade infrastructure:
+
+*   **Phase 1: The Rust Port:** Migrating the finalized TypeScript LL(1) parser and semantic analyzer entirely into the Rust `tenutoc` crate using `logos` and `chumsky`. This will establish Rust as the absolute single source of truth for the Tenuto language, maximizing performance and safety.
+*   **Phase 2: TEAS Engraver Polish:** Expanding the layout engine to support compound time signatures, advanced SMuFL glyphs (clefs, key signatures, dynamics), and cross-measure structural repeats for commercial-grade sheet music rendering.
+*   **Phase 3: Daemon Orchestration:** Hardening the `tenutod` Rust daemon for UDP/OSC delegation and Ableton Link synchronization, enabling seamless live algorithmic performances and hardware integration.
 
 ---
 
