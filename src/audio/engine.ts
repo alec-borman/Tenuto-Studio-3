@@ -213,10 +213,12 @@ export class AudioEngine {
       if (event.style === 'standard') {
         const instrumentName = PATCH_MAP[event.instrument] || 'acoustic_grand_piano';
         if (!this.soundfonts[instrumentName]) {
-          this.soundfonts[instrumentName] = new Soundfont(this.context, { instrument: instrumentName });
-          promises.push(this.soundfonts[instrumentName].loaded());
-          // Route soundfont output to its bus
-          (this.soundfonts[instrumentName].output as any).connect(this.trackBuses[event.instrument]);
+          const sf = new Soundfont(this.context, { 
+            instrument: instrumentName,
+            destination: this.trackBuses[event.instrument]
+          });
+          this.soundfonts[instrumentName] = sf;
+          promises.push(sf.loaded());
         }
       } else if (event.style === 'concrete' && event.src) {
         if (!event.src.startsWith('bus://') && !this.audioBuffers[event.src]) {

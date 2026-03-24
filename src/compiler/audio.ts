@@ -239,9 +239,17 @@ export class AudioEventGenerator {
                   }
                 }
               } else if (event.type === 'tuplet') {
-                const ratioParts = event.ratio.split(':');
-                const num = parseInt(ratioParts[0], 10);
-                const den = parseInt(ratioParts[1], 10);
+                const ratioParts = event.ratio.split('/');
+                let num = 3;
+                let den = 2;
+                if (ratioParts.length === 2) {
+                  num = parseInt(ratioParts[0], 10);
+                  den = parseInt(ratioParts[1], 10);
+                } else if (ratioParts.length === 1) {
+                  num = parseInt(ratioParts[0], 10);
+                  den = Math.pow(2, Math.floor(Math.log2(num)));
+                  if (num === den) den = num / 2;
+                }
                 const multiplier = den / num;
                 
                 let tupletTime = voiceTime;
@@ -313,9 +321,17 @@ export class AudioEventGenerator {
       for (const e of event.events) {
         sum += this.getDurationInQuarters(e);
       }
-      const ratioParts = event.ratio.split(':');
-      const num = parseInt(ratioParts[0], 10);
-      const den = parseInt(ratioParts[1], 10);
+      const ratioParts = event.ratio.split('/');
+      let num = 3;
+      let den = 2;
+      if (ratioParts.length === 2) {
+        num = parseInt(ratioParts[0], 10);
+        den = parseInt(ratioParts[1], 10);
+      } else if (ratioParts.length === 1) {
+        num = parseInt(ratioParts[0], 10);
+        den = Math.pow(2, Math.floor(Math.log2(num)));
+        if (num === den) den = num / 2;
+      }
       return sum * (den / num);
     }
     return 1;

@@ -102,7 +102,17 @@ export class EngraverLayout {
               internalEvents = [];
               let tupletTime = 0;
               const ratioParts = event.ratio.split('/');
-              const multiplier = ratioParts.length === 2 ? parseInt(ratioParts[1], 10) / parseInt(ratioParts[0], 10) : 1;
+              let num = 3;
+              let den = 2;
+              if (ratioParts.length === 2) {
+                num = parseInt(ratioParts[0], 10);
+                den = parseInt(ratioParts[1], 10);
+              } else if (ratioParts.length === 1) {
+                num = parseInt(ratioParts[0], 10);
+                den = Math.pow(2, Math.floor(Math.log2(num)));
+                if (num === den) den = num / 2;
+              }
+              const multiplier = den / num;
               
               for (const e of event.events) {
                 const eDur = this.getEventDuration(e) * multiplier;
@@ -364,12 +374,17 @@ export class EngraverLayout {
         total += this.getEventDuration(e);
       }
       const ratioParts = event.ratio.split('/');
+      let num = 3;
+      let den = 2;
       if (ratioParts.length === 2) {
-        const num = parseInt(ratioParts[0], 10);
-        const den = parseInt(ratioParts[1], 10);
-        return total * (den / num);
+        num = parseInt(ratioParts[0], 10);
+        den = parseInt(ratioParts[1], 10);
+      } else if (ratioParts.length === 1) {
+        num = parseInt(ratioParts[0], 10);
+        den = Math.pow(2, Math.floor(Math.log2(num)));
+        if (num === den) den = num / 2;
       }
-      return total;
+      return total * (den / num);
     }
     return 0;
   }

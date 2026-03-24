@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::net::UdpSocket;
 use rosc::encoder;
-use rusty_link::Link;
+use crate::Link;
 use tenutoc::ir::Timeline;
 use crate::osc_emitter::{encode_superdirt_bundle, encode_chuck_bundle};
 use crate::link_sync::LinkSync;
@@ -29,17 +29,15 @@ pub async fn run_lookahead_loop(
     
     // 1. Flatten the IR Timeline into a Priority Queue of absolute ticks
     let mut event_queue = Vec::new();
-    for (track_id, track) in &timeline.tracks {
-        for event in &track.events {
-            // TEDP 5.3: Micro-Timing & "The Pocket"
-            // The physical playback time is shifted by the absolute tick offset.
-            let physical_start_tick = (event.tick as i64 + event.physical_tick_offset).max(0) as u64;
-            event_queue.push((physical_start_tick, track_id.clone(), track.clone(), event.clone()));
-        }
+    for event in &timeline.events {
+        // TEDP 5.3: Micro-Timing & "The Pocket"
+        // The physical playback time is shifted by the absolute tick offset.
+        let physical_start_tick = (event.tick as i64 + event.physical_tick_offset).max(0) as u64;
+        event_queue.push((physical_start_tick, event.clone()));
     }
     
     // Sort chronologically by physical start tick
-    event_queue.sort_by_key(|(tick, _, _, _)| *tick);
+    event_queue.sort_by_key(|(tick, _)| *tick);
 
     // 2. The High-Priority Scheduling Loop
     let mut current_event_index = 0;
@@ -64,7 +62,7 @@ pub async fn run_lookahead_loop(
 
         // Process all events that fall within the look-ahead horizon
         while current_event_index < event_queue.len() {
-            let (tick, track_id, track, event) = &event_queue[current_event_index];
+            let (tick, event) = &event_queue[current_event_index];
             
             // 3. Phase-Locked Rational Grid (TEDP 3.1)
             // Convert the rational tick into absolute microseconds based on the Link phase
@@ -73,16 +71,16 @@ pub async fn run_lookahead_loop(
 
             if target_execution_ms <= horizon_ms {
                 // Dispatch to SuperDirt
-                if track.style == "concrete" || track.style == "synth" || track.style == "grid" {
-                    if let Some(bundle) = encode_superdirt_bundle(track_id, track, event, target_execution_ms) {
+                if event.track_style == "concrete" || event.track_style == "synth" || event.track_style == "grid" {
+                    if let Some(bundle) = encode_superdirt_bundle(event, target_execution_ms) {
                         let encoded = encoder::encode(&rosc::OscPacket::Bundle(bundle))?;
                         superdirt_socket.send(&encoded).await?;
                     }
                 }
                 
                 // Dispatch to ChucK
-                if track.style == "chuck" {
-                    if let Some(bundle) = encode_chuck_bundle(track, event, target_execution_ms) {
+                if event.track_style == "chuck" {
+                    if let Some(bundle) = encode_chuck_bundle(event, target_execution_ms) {
                         let encoded = encoder::encode(&rosc::OscPacket::Bundle(bundle))?;
                         chuck_socket.send(&encoded).await?;
                     }

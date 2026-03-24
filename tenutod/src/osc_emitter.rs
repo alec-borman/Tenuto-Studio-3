@@ -9,19 +9,17 @@
 //! - `/tenuto/spawn`: Instantiates a new parallel execution thread (ChucK).
 
 use rosc::{OscMessage, OscPacket, OscType, OscBundle, OscTime};
-use tenutoc::ir::{AtomicEvent, EventKind, Track};
+use tenutoc::ir::{AtomicEvent, EventKind};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Converts a Tenuto IR Event into an OSC Bundle with an NTP timestamp for SuperDirt.
 pub fn encode_superdirt_bundle(
-    track_id: &str, 
-    track: &Track, 
     event: &AtomicEvent, 
     execution_time_ms: u64
 ) -> Option<OscBundle> {
     let mut args = vec![
         OscType::String("s".into()),
-        OscType::String(track.patch.clone()),
+        OscType::String(event.track_patch.clone()),
         OscType::String("sustain".into()),
         OscType::Float((event.duration_ticks as f32) / 1920.0), // Normalized to quarter notes
     ];
@@ -33,7 +31,9 @@ pub fn encode_superdirt_bundle(
             args.push(OscType::String("gain".into()));
             args.push(OscType::Float(*velocity as f32 / 127.0));
         },
-        EventKind::Concrete { key, params } => {
+        EventKind::Concrete { id: _, key, params, .. } => {
+            args.push(OscType::String("n".into()));
+            args.push(OscType::String(key.clone()));
             args.push(OscType::String("begin".into()));
             args.push(OscType::Float(params.sample_start as f32 / 1000.0));
             args.push(OscType::String("end".into()));
@@ -47,7 +47,7 @@ pub fn encode_superdirt_bundle(
     }
 
     // Addendum A.2.2: Normative Attribute Mapping
-    if let Some(cut_group) = track.cut_group {
+    if let Some(cut_group) = event.track_cut_group {
         args.push(OscType::String("cut".into()));
         args.push(OscType::Int(cut_group as i32));
     }
@@ -74,14 +74,13 @@ pub fn encode_superdirt_bundle(
 
 /// Converts a Tenuto IR Event into an OSC Bundle for ChucK Shred Spawning.
 pub fn encode_chuck_bundle(
-    track: &Track, 
     event: &AtomicEvent, 
     execution_time_ms: u64
 ) -> Option<OscBundle> {
-    if track.style != "chuck" { return None; }
+    if event.track_style != "chuck" { return None; }
 
     let mut args = vec![
-        OscType::String(track.patch.clone()), // The .ck script URI
+        OscType::String(event.track_patch.clone()), // The .ck script URI
     ];
 
     if let EventKind::Note { pitch_midi, velocity, .. } = &event.kind {
@@ -108,7 +107,7 @@ fn ms_to_ntp(ms: u64) -> OscTime {
     let fractional = ((ms % 1000) as f64 / 1000.0 * 4_294_967_296.0) as u32;
     // NTP epoch is 1900, Unix epoch is 1970. Offset is 2,208,988,800 seconds.
     OscTime {
-        sec: seconds + 2_208_988_800,
-        frac: fractional,
+        seconds: seconds + 2_208_988_800,
+        fractional: fractional,
     }
 }

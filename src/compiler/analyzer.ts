@@ -102,17 +102,24 @@ export class SemanticAnalyzer {
       for (const e of event.events) {
         total += this.getEventDuration(e);
       }
-      const ratioParts = event.ratio.split(':');
+      const ratioParts = event.ratio.split('/');
+      let num = 3;
+      let den = 2;
       if (ratioParts.length === 2) {
-        const num = parseInt(ratioParts[0], 10);
-        const den = parseInt(ratioParts[1], 10);
-        if (num <= 0 || den <= 0) {
-          this.errors.push(new SemanticError(`Invalid tuplet ratio: ${event.ratio}`, event.line, event.column));
-          return total;
-        }
-        return total * (den / num);
+        num = parseInt(ratioParts[0], 10);
+        den = parseInt(ratioParts[1], 10);
+      } else if (ratioParts.length === 1) {
+        num = parseInt(ratioParts[0], 10);
+        // Default denominator logic: find the nearest power of 2 less than num
+        den = Math.pow(2, Math.floor(Math.log2(num)));
+        if (num === den) den = num / 2; // e.g., if num is 4, den is 2
       }
-      return total;
+      
+      if (num <= 0 || den <= 0 || isNaN(num) || isNaN(den)) {
+        this.errors.push(new SemanticError(`Invalid tuplet ratio: ${event.ratio}`, event.line, event.column));
+        return total;
+      }
+      return total * (den / num);
     }
     return 0;
   }
