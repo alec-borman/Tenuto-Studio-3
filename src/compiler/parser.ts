@@ -189,14 +189,14 @@ export class Parser {
         while (!this.check(TokenType.Symbol, '}')) {
           const key = this.match(TokenType.Identifier).value;
           this.match(TokenType.Symbol, ':');
-          const valToken = this.advance();
+          const val = this.parseMetaValue();
           if (prop === 'env' && env) {
-            env[key] = valToken.value;
+            env[key] = val.toString();
           } else if (prop === 'map' && map) {
-            map[key] = valToken.value.startsWith('$') ? valToken.value : parseInt(valToken.value, 10);
+            map[key] = val;
           } else {
-            if (key === 'patch') patch = valToken.value;
-            if (key === 'style') style = valToken.value;
+            if (key === 'patch') patch = val.toString();
+            if (key === 'style') style = val.toString();
           }
           if (this.check(TokenType.Symbol, ',')) {
             this.advance();
@@ -813,7 +813,7 @@ export class Parser {
     let octave = this.currentOctave;
 
     if (val !== 'r') {
-      if (this.currentStyle === 'tab' || this.currentStyle === 'grid') {
+      if (this.currentStyle === 'tab' || this.currentStyle === 'grid' || this.currentStyle === 'concrete') {
         pitch = val;
       } else {
         const match = val.match(/^([a-gA-G])([#b+\-^v]*)([0-9]*)$/);
@@ -875,7 +875,7 @@ export class Parser {
       let octave = this.currentOctave;
 
       if (val !== 'r') {
-        if (this.currentStyle === 'tab' || this.currentStyle === 'grid') {
+        if (this.currentStyle === 'tab' || this.currentStyle === 'grid' || this.currentStyle === 'concrete') {
           pitch = val;
         } else {
           const match = val.match(/^([a-gA-G])([#b+\-^v]*)([0-9]*)$/);
