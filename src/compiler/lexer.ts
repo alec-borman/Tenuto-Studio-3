@@ -122,9 +122,9 @@ export class Lexer {
     }
 
     // Identifiers and Keywords
-    if (/[a-zA-Z_+\-#^]/.test(char)) {
+    if (/[a-zA-Z_$\+\-#^]/.test(char)) {
       let value = '';
-      while (this.pos < this.input.length && /[a-zA-Z0-9_+\-#^.]/.test(this.peek())) {
+      while (this.pos < this.input.length && /[a-zA-Z0-9_$\+\-#^.]/.test(this.peek())) {
         value += this.advance();
       }
       const keywords = ['tenuto', 'meta', 'def', 'measure', 'group', 'import', 'repeat', 'var'];

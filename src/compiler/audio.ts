@@ -401,7 +401,7 @@ export class AudioEventGenerator {
       return 60; // fallback
     } else if (def.style === 'grid') {
       if (def.map && def.map[resolvedPitch] !== undefined) {
-        return def.map[resolvedPitch];
+        return this.resolveValue(def.map[resolvedPitch]);
       }
       return 36; // fallback to kick
     }

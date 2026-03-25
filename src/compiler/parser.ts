@@ -21,7 +21,7 @@ export type Def = {
   env?: Record<string, string>;
   src?: string;
   tuning?: number[];
-  map?: Record<string, number>;
+  map?: Record<string, any>;
 };
 
 export type Macro = {
@@ -175,7 +175,7 @@ export class Parser {
     let env: Record<string, string> | undefined = undefined;
     let src: string | undefined = undefined;
     let tuning: number[] | undefined = undefined;
-    let map: Record<string, number> | undefined = undefined;
+    let map: Record<string, any> | undefined = undefined;
 
     while (this.check(TokenType.Identifier)) {
       const prop = this.advance().value;
@@ -193,7 +193,7 @@ export class Parser {
           if (prop === 'env' && env) {
             env[key] = valToken.value;
           } else if (prop === 'map' && map) {
-            map[key] = parseInt(valToken.value, 10);
+            map[key] = valToken.value.startsWith('$') ? valToken.value : parseInt(valToken.value, 10);
           } else {
             if (key === 'patch') patch = valToken.value;
             if (key === 'style') style = valToken.value;
