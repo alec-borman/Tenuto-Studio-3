@@ -32,6 +32,7 @@ function mergeASTs(main: AST, imported: AST): AST {
   return {
     version: main.version,
     imports: main.imports,
+    vars: { ...imported.vars, ...main.vars },
     meta: { ...imported.meta, ...main.meta },
     defs: [...imported.defs, ...main.defs],
     macros: [...imported.macros, ...main.macros],

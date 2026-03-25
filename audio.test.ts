@@ -7,6 +7,7 @@ describe('AudioEngine DSP', () => {
     const ast: AST = {
       version: '3.0',
       imports: [],
+      vars: {},
       meta: { tempo: '120' },
       defs: [
         { id: 'v1', name: 'Voice 1', style: 'standard', patch: 'gm_piano' }

@@ -25,6 +25,20 @@ export interface AudioEvent {
 
 export class AudioEventGenerator {
   private bpm: number = 120;
+  private vars: Record<string, any> = {};
+
+  private resolveValue(val: any): any {
+    if (typeof val === 'string' && val.startsWith('$')) {
+      const varName = val.slice(1);
+      const resolved = this.vars[varName];
+      if (resolved === undefined) {
+        console.warn(`[TEDP] Unresolved variable: ${val}`);
+        return val;
+      }
+      return resolved;
+    }
+    return val;
+  }
 
   private processModifiers(modifiers: string[] | undefined, time: number, duration: number, instrument: string, events: AudioEvent[]) {
     let pan: number | undefined;
@@ -166,6 +180,7 @@ export class AudioEventGenerator {
 
   public generate(ast: AST): AudioEvent[] {
     const events: AudioEvent[] = [];
+    this.vars = ast.vars || {};
     
     if (ast.meta.tempo) {
       this.bpm = parseInt(ast.meta.tempo, 10);
@@ -176,6 +191,13 @@ export class AudioEventGenerator {
     for (const def of ast.defs) {
       let currentTime = 0;
       
+      const resolvedEnv: Record<string, string> = {};
+      if (def.env) {
+        for (const [key, val] of Object.entries(def.env)) {
+          resolvedEnv[key] = this.resolveValue(val).toString();
+        }
+      }
+
       for (const measure of ast.measures) {
         const part = measure.parts.find(p => p.id === def.id);
         if (part) {
@@ -204,7 +226,7 @@ export class AudioEventGenerator {
                     velocity,
                     instrument: def.patch,
                     style: def.style,
-                    env: def.env,
+                    env: resolvedEnv,
                     src: def.src,
                     push: event.push,
                     pull: event.pull,
@@ -227,7 +249,7 @@ export class AudioEventGenerator {
                       velocity: 80,
                       instrument: def.patch,
                       style: def.style,
-                      env: def.env,
+                      env: resolvedEnv,
                       src: def.src,
                       push: event.push,
                       pull: event.pull,
@@ -267,7 +289,7 @@ export class AudioEventGenerator {
                       velocity: 80,
                       instrument: def.patch,
                       style: def.style,
-                      env: def.env,
+                      env: resolvedEnv,
                       src: def.src,
                       push: e.push,
                       pull: e.pull,
@@ -360,8 +382,10 @@ export class AudioEventGenerator {
   }
 
   private resolvePitch(pitch: string, octave: number, accidental: string | undefined, def: any): number {
+    const resolvedPitch = this.resolveValue(pitch);
+
     if (def.style === 'tab') {
-      const parts = pitch.split('-');
+      const parts = resolvedPitch.split('-');
       if (parts.length === 2) {
         const fret = parseInt(parts[0], 10);
         const stringNum = parseInt(parts[1], 10);
@@ -376,8 +400,8 @@ export class AudioEventGenerator {
       }
       return 60; // fallback
     } else if (def.style === 'grid') {
-      if (def.map && def.map[pitch] !== undefined) {
-        return def.map[pitch];
+      if (def.map && def.map[resolvedPitch] !== undefined) {
+        return def.map[resolvedPitch];
       }
       return 36; // fallback to kick
     }
@@ -385,7 +409,7 @@ export class AudioEventGenerator {
     const pitchClasses: Record<string, number> = {
       'c': 0, 'd': 2, 'e': 4, 'f': 5, 'g': 7, 'a': 9, 'b': 11
     };
-    let midi = (octave + 1) * 12 + pitchClasses[pitch.toLowerCase()];
+    let midi = (octave + 1) * 12 + pitchClasses[resolvedPitch.toLowerCase()];
     if (accidental === '#') midi += 1;
     if (accidental === 'b') midi -= 1;
     return midi;

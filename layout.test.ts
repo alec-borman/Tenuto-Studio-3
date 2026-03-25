@@ -7,6 +7,7 @@ describe('EngraverLayout', () => {
     const ast: AST = {
       version: '3.0',
       imports: [],
+      vars: {},
       meta: {},
       defs: [
         { id: 'p1', name: 'Part 1', style: 'standard', patch: 'gm_piano' }

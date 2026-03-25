@@ -5,6 +5,7 @@ import { Diagnostic, CompilerError } from './diagnostics';
 export type AST = {
   version: string;
   imports: string[];
+  vars: Record<string, any>;
   meta: Record<string, any>;
   defs: Def[];
   macros: Macro[];
@@ -264,6 +265,7 @@ export class Parser {
     this.match(TokenType.Symbol, '{');
 
     const imports: string[] = [];
+    const vars: Record<string, any> = {};
     const meta: Record<string, any> = {};
     const defs: Def[] = [];
     const macros: Macro[] = [];
@@ -274,6 +276,11 @@ export class Parser {
         this.advance();
         const importPath = this.match(TokenType.String).value;
         imports.push(importPath);
+      } else if (this.check(TokenType.Keyword, 'var')) {
+        this.advance();
+        const varName = this.match(TokenType.Identifier).value;
+        this.match(TokenType.Symbol, '=');
+        vars[varName] = this.parseMetaValue();
       } else if (this.check(TokenType.Keyword, 'meta')) {
         this.advance();
         this.match(TokenType.Symbol, '@');
@@ -492,7 +499,7 @@ export class Parser {
     this.match(TokenType.Symbol, '}');
     this.match(TokenType.EOF);
 
-    return { version: versionToken.value, imports, meta, defs, macros, measures };
+    return { version: versionToken.value, imports, vars, meta, defs, macros, measures };
   }
 
   private parseEvents(stopAtBarline: boolean = false): Event[] {
