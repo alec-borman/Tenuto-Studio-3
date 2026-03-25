@@ -73,6 +73,7 @@ self.onmessage = (e) => {
     lastSyncVisualTime = 0.0;
     startLinkBeat = e.data.linkBeat || 0;
     particles = [];
+    if (typeof lastSpawnTime !== 'undefined') lastSpawnTime = {};
   } else if (type === "STOP_PLAYBACK") {
     isPlaying = false;
     visualTime = 0.0;
@@ -80,6 +81,7 @@ self.onmessage = (e) => {
     lastSyncPerfTime = 0.0;
     lastSyncVisualTime = 0.0;
     particles = [];
+    if (typeof lastSpawnTime !== 'undefined') lastSpawnTime = {};
   } else if (type === "SYNC_TIME") {
     if (isPlaying) {
       isLink = e.data.isLink;
@@ -382,8 +384,22 @@ function updateInstances(notes) {
   gl.bufferData(gl.ARRAY_BUFFER, instanceData, gl.STATIC_DRAW);
 }
 
+let lastSpawnTime = {};
+
 function spawnParticles(time, pitch) {
-  for (let i = 0; i < 15; i++) {
+  const lastTime = lastSpawnTime[pitch] || -1;
+  const timeSinceLast = time - lastTime;
+  
+  let numParticles = 15;
+  if (timeSinceLast < 0.05) {
+    numParticles = 3; // continuous burn for ratchets
+  } else if (timeSinceLast < 0.1) {
+    numParticles = 8;
+  }
+  
+  lastSpawnTime[pitch] = time;
+
+  for (let i = 0; i < numParticles; i++) {
     const angle = Math.random() * Math.PI * 2;
     const speed = Math.random() * 2.0 + 1.0;
     particles.push({

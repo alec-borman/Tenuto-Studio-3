@@ -28,20 +28,32 @@ Tenuto Studio 3.0 is built on a philosophy of **strict decoupling** between the 
 
 ## 🧠 Intelligence Layer: Addendum I (RAG)
 
-To maintain a 10x development velocity as the codebase scales to 50k+ lines, Tenuto 3.0 implements **Retrieval-Augmented Generation (RAG)**:
+To maintain a 10x development velocity as the codebase scales to 50k+ lines, Tenuto 3.0 implements **Retrieval-Augmented Generation (RAG)**. The local LanceDB indexer is now **LIVE**.
 
 - **Semantic Indexing:** AST-aware chunking via Tree-sitter ensures logical blocks (Rust impls/TS classes) remain intact.
 - **Vector Orchestration:** Local LanceDB indexing allows for surgical retrieval of "Narrow Waist" logic, bypassing peripheral UI noise.
 - **Domain Tagging:** Every vector is tagged by architectural domain (`compiler`, `audio`, `visual`, `infra`), ensuring the AI collaborator remains focused on the relevant layer.
 
+### Using the Semantic Console
+
+**Note:** A valid `GEMINI_API_KEY` must be present in the `.env` file in the root directory for these scripts to function.
+
+```bash
+# To map the current codebase to the vector database:
+npm run index
+
+# To search the database for context before writing new code:
+npm run search "How does the AudioEventGenerator handle roll modifiers?"
+```
+
 ---
 
 ## 🏗️ Current State: The Iterative Hybrid Architecture
 
-We are currently in an active, pragmatic, and highly iterative development phase. To achieve rapid iteration, hot-reloading, and instantaneous UI feedback during this MVP phase, we are employing a **Hybrid Architecture**:
+We are currently in an active, pragmatic, and highly iterative development phase. To achieve rapid iteration, hot-reloading, and instantaneous UI feedback during this MVP phase, we are employing a **Hybrid Architecture** governed by the **Dual-Track Mandate**:
 
-*   **TypeScript Scaffolding:** Currently, the TypeScript frontend handles the heavy lifting of AST parsing and semantic analysis. This is intentional *scaffolding* that allows us to rapidly prototype language features, test grammar changes, and immediately visualize the results in the browser.
-*   **Rust Core (`tenutoc`):** The Rust core (compiled to WebAssembly) is already handling massive-scale tasks like zero-copy MIDI decompilation (via reverse Bresenham/LZ77 macro extraction) and acts as our robust fallback compiler.
+*   **TypeScript Scaffolding (Live Web Preview):** Currently, the TypeScript frontend handles the heavy lifting of AST parsing and semantic analysis for the web preview. This is intentional *scaffolding* that allows us to rapidly prototype language features, test grammar changes, and immediately visualize the results in the browser.
+*   **Rust Core (`tenutoc`) (The Steel):** The high-performance Rust core (compiled to WebAssembly) acts as our robust engine for the "Pro" desktop build and handles massive-scale tasks. It is the absolute single source of truth for the Tenuto language.
 *   **Live AudioWorklet Engine:** The physics layer is fully operational. The AudioWorklet engine utilizes a zero-allocation object pool and a `SharedArrayBuffer` ring buffer to achieve glitch-free, phase-locked execution, completely eliminating Garbage Collection (GC) pauses.
 
 ---
@@ -69,7 +81,7 @@ Tenuto Studio 3.0 is designed for **Zero-Cost, High-Fidelity Distribution**:
 
 ## 💻 Language in Action
 
-Tenuto 3.0 introduces stateful cursor logic and dot-chained attributes for precise control over musical articulation and expression.
+Tenuto 3.0 introduces stateful cursor logic, dot-chained attributes, and powerful DSP effects routing for precise control over musical articulation and expression. It also supports Euclidean rhythms (`hits`, `steps`) and the `.roll()` sub-tick engine.
 
 ```tenuto
 tenuto "3.0" {
@@ -80,12 +92,20 @@ tenuto "3.0" {
   
   measure 1 {
     |:
-    synth1: c5:8.stacc d5:8.stacc e5:8.stacc f5:8.stacc g5:8.stacc f5:8.stacc e5:8.stacc d5:8.stacc |
-    fxTrack: c4:1.slice(2).reverse |
+    synth1: c5:8.stacc.fx("bitcrusher", @{bits: 4}) d5:8.stacc.fx("delay", @{time: 250, feedback: 0.4}) e5:8.stacc.fx("reverb", @{decay: 3}) f5:8.stacc.fx("distortion", @{amount: 0.8}) g5:8.stacc.fx("chorus", @{speed: 2.0}) f5:8.stacc e5:8.stacc d5:8.stacc |
+    fxTrack: c4:1.slice(2).reverse.roll(32) |
     :|
   }
 }
 ```
+
+### Available Effects
+The AudioEngine now supports professional-grade DSP effects powered by Tone.js:
+- **reverb**: `fx("reverb", @{decay: 4, dryWet: 0.5})`
+- **delay**: `fx("delay", @{time: 250, feedback: 0.3, dryWet: 0.5})`
+- **distortion**: `fx("distortion", @{amount: 0.5, dryWet: 0.5})`
+- **bitcrusher**: `fx("bitcrusher", @{bits: 4, dryWet: 0.5})`
+- **chorus**: `fx("chorus", @{speed: 1.5, delay: 3.5, depth: 0.7, dryWet: 0.5})`
 
 ---
 

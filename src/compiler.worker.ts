@@ -2,13 +2,25 @@ import { Parser, ParserError, AST } from './compiler/parser';
 import { SemanticAnalyzer, SemanticError } from './compiler/analyzer';
 import { Linter } from './compiler/linter';
 import { SVGEngraver } from './engraver/svg';
-import init, { compile_tenuto_to_midi, compile_tenuto_to_svg, decompile_midi_to_tenuto, alloc_buffer, free_buffer, decompile_midi_zero_copy } from '../public/pkg/tenutoc.js';
 import { STDLIB } from './compiler/stdlib';
 import { MusicXMLExporter } from './compiler/musicxml';
 import { MIDIGenerator } from './compiler/midi';
 import { CompilerError } from './compiler/diagnostics';
 import { AudioEventGenerator } from './compiler/audio';
 import { GraphUnroller } from './compiler/unroller';
+
+export interface StandardCompilerResponse {
+    midi: Uint8Array;
+    audioEvents: any[];
+    svgs: string[];
+    layout: any;
+    musicxml: string;
+    ast: any;
+    ir: string;
+    rawCode: string;
+    durationMs: string;
+    diagnostics: any[];
+}
 
 export interface CompilerRequest {
     type: 'CODE_CHANGED' | 'DECOMPILE';
@@ -21,12 +33,9 @@ export interface CompilerResponse {
     type: 'STATUS' | 'SUCCESS' | 'ERROR' | 'DECOMPILE_SUCCESS';
     status?: string;
     error?: string;
-    payload?: any;
+    payload?: StandardCompilerResponse | any;
     bootTime?: string;
 }
-
-let isWasmLoaded = false;
-let wasmMemory: any = null;
 
 function mergeASTs(main: AST, imported: AST): AST {
   return {
@@ -40,15 +49,26 @@ function mergeASTs(main: AST, imported: AST): AST {
   };
 }
 
+let wasmModule: any = null;
+let activeEngine: 'RUST' | 'TYPESCRIPT' = 'TYPESCRIPT';
+const DEBUG_PARITY = true;
+
 async function bootCompiler() {
     try {
         const startTime = performance.now();
-        const wasm = await init(); 
-        if (wasm && wasm.memory) {
-            wasmMemory = wasm.memory;
+        
+        try {
+            // @ts-ignore
+            wasmModule = await import(/* @vite-ignore */ '../public/pkg/tenutoc.js');
+            await wasmModule.default();
+            activeEngine = 'RUST';
+            console.log("[Shadow] Wasm initialized successfully.");
+        } catch (e) {
+            console.warn("[Shadow] Wasm unavailable, falling back to TS scaffolding.", e);
+            activeEngine = 'TYPESCRIPT';
         }
+
         const bootTime = performance.now() - startTime;
-        isWasmLoaded = true;
         
         const response: CompilerResponse = { 
             type: 'STATUS', 
@@ -69,15 +89,6 @@ async function bootCompiler() {
 bootCompiler();
 
 self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
-    if (!isWasmLoaded) {
-        const response: CompilerResponse = { 
-            type: 'ERROR', 
-            payload: { message: "Compiler is still booting. Please wait." } 
-        };
-        postMessage(response);
-        return;
-    }
-
     const { type, code, midi_bytes, tempoOverride } = e.data;
 
     if (type === 'CODE_CHANGED') {
@@ -101,97 +112,94 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
         }
 
         const compileStartTime = performance.now();
+        
+        let rustResponse: StandardCompilerResponse | null = null;
+        let tsResponse: StandardCompilerResponse | null = null;
+        let tsError: any = null;
 
-        try {
-            // 1. Run our TS Parser and Semantic Analyzer
-            const parser = new Parser(processedCode);
-            let ast = parser.parse();
-            
-            // Apply tempo override if provided (Sprint 5: Ableton Link)
-            if (tempoOverride) {
-                ast.meta.tempo = tempoOverride;
-            }
-            
-            // Resolve imports
-            if (ast.imports && ast.imports.length > 0) {
-                for (const importPath of ast.imports) {
-                    if (STDLIB[importPath]) {
-                        const importedParser = new Parser(STDLIB[importPath]);
-                        const importedAst = importedParser.parse();
-                        ast = mergeASTs(ast, importedAst);
-                    } else {
-                        throw new ParserError(`Module not found: ${importPath}`, 1, 1);
-                    }
-                }
-            }
-
-            // Sprint 6: Graph Unrolling
-            const unroller = new GraphUnroller(ast);
-            const unrolledAst = unroller.unroll();
-
-            const analyzer = new SemanticAnalyzer(unrolledAst);
-            const semanticErrors = analyzer.analyze();
-            
-            if (semanticErrors.length > 0) {
-                // Return semantic errors
-                const diagnostics = semanticErrors.map(err => err.diagnostic);
-                
-                const response: CompilerResponse = { 
-                    type: 'ERROR', 
-                    payload: { 
-                        message: "Semantic analysis failed",
-                        diagnostics
-                    } 
-                };
-                postMessage(response);
-                return;
-            }
-
-            const linter = new Linter();
-            const lintDiagnostics = linter.lint(ast);
-
-            // 2. If valid, run the TS compiler to generate MIDI and SVG
-            let midiBytes: Uint8Array;
-            if (typeof compile_tenuto_to_midi === 'function' && isWasmLoaded) {
-                const wasmView = compile_tenuto_to_midi(processedCode);
-                if (wasmView instanceof Uint8Array) {
-                    midiBytes = new Uint8Array(wasmView);
-                    if (typeof free_buffer === 'function' && wasmView.byteOffset !== undefined) {
-                        free_buffer(wasmView.byteOffset, wasmView.length);
-                    }
+        // The "Steel" Path
+        if (activeEngine === 'RUST') {
+            try {
+                if (typeof wasmModule.compile_tenuto_to_midi === 'function') {
+                    const result = wasmModule.compile_tenuto_to_midi(processedCode, tempoOverride || 120);
+                    rustResponse = JSON.parse(result) as StandardCompilerResponse;
                 } else {
-                    midiBytes = wasmView;
+                    throw new Error("compile_tenuto_to_midi not found in Wasm module");
+                }
+            } catch (err) {
+                console.warn("[Shadow] Wasm unavailable or threw an error, falling back to TS scaffolding.", err);
+                activeEngine = 'TYPESCRIPT';
+            }
+        }
+
+        // The "Scaffolding" Fallback (and Parity Check)
+        if (activeEngine === 'TYPESCRIPT' || DEBUG_PARITY) {
+            try {
+                // 1. Run our TS Parser and Semantic Analyzer
+                const parser = new Parser(processedCode);
+                let ast = parser.parse();
+                
+                // Apply tempo override if provided
+                if (tempoOverride) {
+                    ast.meta.tempo = tempoOverride;
                 }
                 
-                // Fallback to TS compiler if WASM returns empty/mock MIDI
-                if (midiBytes.length <= 26) {
-                    const midiGen = new MIDIGenerator();
-                    midiBytes = midiGen.generate(unrolledAst);
+                // Resolve imports
+                if (ast.imports && ast.imports.length > 0) {
+                    for (const importPath of ast.imports) {
+                        if (STDLIB[importPath]) {
+                            const importedParser = new Parser(STDLIB[importPath]);
+                            const importedAst = importedParser.parse();
+                            ast = mergeASTs(ast, importedAst);
+                        } else {
+                            throw new ParserError(`Module not found: ${importPath}`, 1, 1);
+                        }
+                    }
                 }
-            } else {
+
+                // Sprint 6: Graph Unrolling
+                const unroller = new GraphUnroller(ast);
+                const unrolledAst = unroller.unroll();
+
+                const analyzer = new SemanticAnalyzer(unrolledAst);
+                const semanticErrors = analyzer.analyze();
+                
+                if (semanticErrors.length > 0) {
+                    const diagnostics = semanticErrors.map(err => err.diagnostic);
+                    
+                    const response: CompilerResponse = { 
+                        type: 'ERROR', 
+                        payload: { 
+                            message: "Semantic analysis failed",
+                            diagnostics
+                        } 
+                    };
+                    postMessage(response);
+                    return;
+                }
+
+                const linter = new Linter();
+                const lintDiagnostics = linter.lint(ast);
+
+                // 2. If valid, run the TS compiler to generate MIDI and SVG
+                let midiBytes: Uint8Array;
                 const midiGen = new MIDIGenerator();
                 midiBytes = midiGen.generate(unrolledAst);
-            }
-            
-            // Generate audio events directly from AST
-            const audioGen = new AudioEventGenerator();
-            const audioEvents = audioGen.generate(unrolledAst);
-            
-            // Use our new TS-based engraver
-            const engraver = new SVGEngraver();
-            const { svgs: svgStrings, layout: scoreLayout } = engraver.render(ast, lintDiagnostics);
-            
-            const musicxmlExporter = new MusicXMLExporter();
-            const musicxml = musicxmlExporter.export(unrolledAst);
-            
-            const compileDuration = performance.now() - compileStartTime;
-            
-            const DEBUG = true;
-            if (DEBUG) console.log(`[WSM] IR: ${audioEvents.length} events | ${compileDuration.toFixed(2)}ms`);
-            
-            const response: CompilerResponse = { 
-                type: 'SUCCESS', 
-                payload: { 
+                
+                // Generate audio events directly from AST
+                const audioGen = new AudioEventGenerator();
+                const audioEvents = audioGen.generate(unrolledAst);
+                
+                // Use our new TS-based engraver
+                const engraver = new SVGEngraver();
+                const { svgs: svgStrings, layout: scoreLayout } = engraver.render(ast, lintDiagnostics);
+                
+                const musicxmlExporter = new MusicXMLExporter();
+                const musicxml = musicxmlExporter.export(unrolledAst);
+                
+                const compileDuration = performance.now() - compileStartTime;
+                
+                tsResponse = {
                     midi: midiBytes,
                     audioEvents: audioEvents,
                     svgs: svgStrings,
@@ -202,14 +210,24 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
                     rawCode: processedCode,
                     durationMs: compileDuration.toFixed(2),
                     diagnostics: lintDiagnostics
-                } 
-            };
-            postMessage(response);
-            
-        } catch (err: any) {
+                };
+            } catch (err: any) {
+                tsError = err;
+            }
+        }
+
+        // Parity Check (The Anti-Drift Guard)
+        if (DEBUG_PARITY && rustResponse && tsResponse) {
+            if (rustResponse.audioEvents?.length !== tsResponse.audioEvents?.length) {
+                console.warn(`[PARITY ALERT] Rust and TS engines have diverged! Rust events: ${rustResponse.audioEvents?.length}, TS events: ${tsResponse.audioEvents?.length}`);
+            }
+        }
+
+        // Dispatch Response
+        if (activeEngine === 'TYPESCRIPT' && tsError) {
             let diagnostics = [];
-            if (err instanceof CompilerError) {
-                diagnostics.push(err.diagnostic);
+            if (tsError instanceof CompilerError) {
+                diagnostics.push(tsError.diagnostic);
             } else {
                 diagnostics.push({
                     status: 'fatal',
@@ -217,7 +235,7 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
                     type: 'Internal Compiler Error',
                     location: { line: 1, column: 1 },
                     diagnostics: {
-                        message: err.toString()
+                        message: tsError.toString()
                     }
                 });
             }
@@ -225,48 +243,36 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
             const response: CompilerResponse = { 
                 type: 'ERROR', 
                 payload: { 
-                    message: err.toString(),
+                    message: tsError.toString(),
                     diagnostics
                 } 
             };
             postMessage(response);
+            return;
         }
-    } else if (type === 'DECOMPILE') {
-        try {
-            let tenutoCode;
-            const midiBytesArray = new Uint8Array(midi_bytes!);
-            
-            if (wasmMemory && typeof alloc_buffer === 'function' && typeof free_buffer === 'function' && typeof decompile_midi_zero_copy === 'function') {
-                const len = midiBytesArray.length;
-                
-                const ptr = alloc_buffer(len);
-                try {
-                    const memoryView = new Uint8Array(wasmMemory.buffer, ptr, len);
-                    memoryView.set(midiBytesArray);
-                    const result = decompile_midi_zero_copy(ptr, len);
-                    if (result instanceof Uint8Array) {
-                        // Explicitly copy data to a new Uint8Array to detach from Wasm memory
-                        const safeCopy = new Uint8Array(result);
-                        // Immediately call free_buffer on the original pointer
-                        if (typeof free_buffer === 'function' && result.byteOffset !== undefined) {
-                            free_buffer(result.byteOffset, result.length);
-                        }
-                        tenutoCode = new TextDecoder().decode(safeCopy);
-                    } else {
-                        tenutoCode = result;
-                    }
-                } finally {
-                    free_buffer(ptr, len);
-                }
-            } else {
-                throw new Error("WASM Memory or Zero-Copy functions are not securely linked.");
-            }
 
-            const response: CompilerResponse = {
-                type: 'DECOMPILE_SUCCESS',
-                payload: { code: tenutoCode }
+        const finalResponse = activeEngine === 'RUST' ? rustResponse : tsResponse;
+        
+        if (finalResponse) {
+            const response: CompilerResponse = { 
+                type: 'SUCCESS', 
+                payload: finalResponse 
             };
             postMessage(response);
+        }
+
+    } else if (type === 'DECOMPILE') {
+        try {
+            if (activeEngine === 'RUST' && typeof wasmModule.decompile_midi_to_tenuto === 'function') {
+                const result = wasmModule.decompile_midi_to_tenuto(midi_bytes);
+                const response: CompilerResponse = {
+                    type: 'DECOMPILE_SUCCESS',
+                    payload: { code: result }
+                };
+                postMessage(response);
+            } else {
+                throw new Error("Decompilation is not supported in TS compiler or Wasm unavailable.");
+            }
         } catch (err: any) {
             const response: CompilerResponse = {
                 type: 'ERROR',

@@ -12,6 +12,17 @@ const PATCH_MAP: Record<string, string> = {
   'gm_vox': 'choir_aahs'
 };
 
+/**
+ * The AudioEngine manages the Web Audio API context, Tone.js integration, and the AudioWorklet.
+ * 
+ * In Sprint 7, the engine was upgraded to use Tone.js for its routing pipeline.
+ * Each instrument is assigned a `Tone.Gain` bus. If an instrument has an `.fx()` modifier,
+ * a dynamic Tone.js effect node (e.g., `Tone.Reverb`, `Tone.FeedbackDelay`) is instantiated
+ * and inserted between the bus and `Tone.Destination`.
+ * 
+ * It also utilizes the CacheStorage API as an asset vault to persistently cache
+ * downloaded Soundfonts and audio samples, minimizing network requests on reload.
+ */
 export class AudioEngine {
   private context!: AudioContext;
   private soundfonts: Record<string, Soundfont> = {};
@@ -21,7 +32,7 @@ export class AudioEngine {
   private convolver: ConvolverNode | null = null;
   private dryGain: GainNode | null = null;
   private wetGain: GainNode | null = null;
-  private trackBuses: Record<string, GainNode> = {};
+  private trackBuses: Record<string, Tone.Gain> = {};
   private isInitialized: boolean = false;
 
   private sharedBuffer: SharedArrayBuffer | null = null;
@@ -147,6 +158,7 @@ export class AudioEngine {
    * @returns A Promise that resolves when all assets are loaded.
    */
   public async loadInstruments(events: AudioEvent[], defs?: any[]) {
+    await Tone.start();
     const instruments = Array.from(new Set(events.map(e => e.instrument)));
     await this.init(instruments);
     const promises: Promise<any>[] = [];
@@ -154,12 +166,12 @@ export class AudioEngine {
     for (let i = 0; i < instruments.length; i++) {
       const instrument = instruments[i];
       if (!this.trackBuses[instrument]) {
-        const bus = this.context.createGain();
+        const bus = new Tone.Gain();
         this.trackBuses[instrument] = bus;
         
         // Connect the worklet output for this instrument to its bus
         if (this.workletNode) {
-          this.workletNode.connect(bus, i);
+          this.workletNode.connect(bus as any, i);
         }
         
         // Check if this track has FX defined in the AST defs or events
@@ -167,55 +179,42 @@ export class AudioEngine {
         
         if (fxEvent && fxEvent.fx) {
           const fx = fxEvent.fx;
-          let fxNode: AudioNode | null = null;
+          let fxNode: any = null;
           
           if (fx.type === 'hall' || fx.type === 'reverb') {
-            const convolver = this.context.createConvolver();
-            this.generateSyntheticIRForNode(convolver);
-            fxNode = convolver;
+            const reverb = new Tone.Reverb({ decay: fx.decay || 4, wet: fx.dryWet || 0.5 });
+            promises.push(reverb.generate());
+            fxNode = reverb;
           } else if (fx.type === 'delay') {
-            const delay = this.context.createDelay();
-            delay.delayTime.value = fx.time ? parseFloat(fx.time) / 1000 : 0.25;
-            
-            const feedback = this.context.createGain();
-            feedback.gain.value = fx.feedback ? parseFloat(fx.feedback) : 0.3;
-            
-            delay.connect(feedback);
-            feedback.connect(delay);
-            
-            fxNode = delay;
+            fxNode = new Tone.FeedbackDelay({ delayTime: (fx.time || 250) / 1000, feedback: fx.feedback || 0.3, wet: fx.dryWet || 0.5 });
+          } else if (fx.type === 'distortion') {
+            fxNode = new Tone.Distortion({ distortion: fx.amount || 0.5, wet: fx.dryWet || 0.5 });
+          } else if (fx.type === 'bitcrusher') {
+            fxNode = new Tone.BitCrusher(fx.bits || 4);
+            fxNode.wet.value = fx.dryWet !== undefined ? fx.dryWet : 0.5;
+          } else if (fx.type === 'chorus') {
+            fxNode = new Tone.Chorus({ frequency: fx.speed || 1.5, delayTime: fx.delay || 3.5, depth: fx.depth || 0.7, wet: fx.dryWet || 0.5 }).start();
           }
           
           if (fxNode) {
-            const dryGain = this.context.createGain();
-            const wetGain = this.context.createGain();
-            
-            const dryWet = fx.dryWet !== undefined ? fx.dryWet : 0.5;
-            dryGain.gain.value = 1 - dryWet;
-            wetGain.gain.value = dryWet;
-            
-            bus.connect(dryGain);
             bus.connect(fxNode);
-            fxNode.connect(wetGain);
-            
-            dryGain.connect(this.context.destination);
-            wetGain.connect(this.context.destination);
+            fxNode.connect(Tone.Destination);
           } else {
-            bus.connect(this.context.destination);
+            bus.connect(Tone.Destination);
           }
         } else {
-          bus.connect(this.context.destination);
+          bus.connect(Tone.Destination);
         }
       }
     }
 
     for (const event of events) {
       if (event.style === 'standard') {
-        const instrumentName = PATCH_MAP[event.instrument] || 'acoustic_grand_piano';
+        const instrumentName = PATCH_MAP[event.instrument] || event.instrument;
         if (!this.soundfonts[instrumentName]) {
           const sf = new Soundfont(this.context, { 
-            instrument: instrumentName,
-            destination: this.trackBuses[event.instrument]
+            instrument: instrumentName as any,
+            destination: this.trackBuses[event.instrument] as any
           });
           this.soundfonts[instrumentName] = sf;
           promises.push(sf.loaded());
@@ -250,7 +249,16 @@ export class AudioEngine {
 
   private async loadAudioBuffer(url: string) {
     try {
-      const response = await fetch(url);
+      const cache = await caches.open('tenuto-assets');
+      let response = await cache.match(url);
+      
+      if (response) {
+        console.log(`[TEDP] Cache hit for ${url}`);
+      } else {
+        response = await fetch(url);
+        await cache.put(url, response.clone());
+      }
+      
       const arrayBuffer = await response.arrayBuffer();
       const audioBuffer = await this.context.decodeAudioData(arrayBuffer);
       this.audioBuffers[url] = audioBuffer;
@@ -509,7 +517,7 @@ export class AudioEngine {
     const bus = this.trackBuses[event.instrument];
     if (bus) {
       osc.connect(gain);
-      gain.connect(bus);
+      gain.connect(bus as any);
     } else {
       osc.connect(gain);
       gain.connect(this.context.destination);

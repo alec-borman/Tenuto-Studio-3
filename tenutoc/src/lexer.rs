@@ -1,16 +1,86 @@
-use logos::Logos;
+use logos::{Logos, Lexer};
 
+/// The Token enum represents the lexical tokens of the Tenuto language.
+/// 
+/// F-002 Bug Fix: The lexer implements strict dot isolation for attributes.
+/// For example, `4.stacc` is parsed as `Number("4")`, `Symbol(".")`, `Identifier("stacc")`
+/// rather than incorrectly consuming the dot as part of a floating-point number.
 #[derive(Logos, Hash, Eq, PartialEq, Clone, Debug)]
-#[logos(skip r"[ \t\n\f]+")]
+#[logos(skip r"[ \t\n\f\r]+")]
+#[logos(skip r"//[^\n]*")]
+#[logos(skip r"%%[^\n]*")]
 pub enum Token {
-    #[regex(r"[0-9]+(/[0-9]+)?", |lex| lex.slice().to_string())]
-    Number(String),
+    #[token("tenuto", |lex| lex.slice().to_string())]
+    #[token("meta", |lex| lex.slice().to_string())]
+    #[token("def", |lex| lex.slice().to_string())]
+    #[token("measure", |lex| lex.slice().to_string())]
+    #[token("group", |lex| lex.slice().to_string())]
+    #[token("import", |lex| lex.slice().to_string())]
+    #[token("repeat", |lex| lex.slice().to_string())]
+    #[token("var", |lex| lex.slice().to_string())]
+    Keyword(String),
 
-    #[regex(r"[a-zA-Z_][a-zA-Z0-9_+\-^v#]*", |lex| lex.slice().to_string())]
+    #[regex(r"[a-zA-Z_$\+\-#^][a-zA-Z0-9_$\+\-#^]*", |lex| lex.slice().to_string())]
     Identifier(String),
 
-    #[regex(r"[{}@=:<\[\]|,\(\)*.]", |lex| lex.slice().to_string())]
+    #[regex(r"[0-9]+", lex_number)]
+    Number(String),
+
+    #[regex(r#""[^"]*""#, |lex| {
+        let s = lex.slice();
+        s[1..s.len()-1].to_string()
+    })]
+    String(String),
+
+    #[token("|:", |lex| lex.slice().to_string())]
+    #[token(":|", |lex| lex.slice().to_string())]
+    #[token("[1.", |lex| lex.slice().to_string())]
+    #[token("[2.", |lex| lex.slice().to_string())]
+    #[regex(r".", |lex| lex.slice().to_string(), priority = 1)]
     Symbol(String),
+}
+
+fn lex_number(lex: &mut Lexer<Token>) -> String {
+    loop {
+        let remainder = lex.remainder();
+        let mut chars = remainder.chars();
+        let Some(c) = chars.next() else { break };
+
+        if c.is_ascii_digit() || c == '/' {
+            lex.bump(c.len_utf8());
+        } else if c == '.' {
+            // F-002 Fix: check if it's an accessor
+            let next_c = chars.next();
+            let is_accessor = match next_c {
+                Some(nc) => matches!(nc, 'a'..='z' | 'A'..='Z' | '_' | '$' | '+' | '-' | '#' | '^'),
+                None => false,
+            };
+            if is_accessor {
+                break; // Do not consume the dot
+            } else {
+                lex.bump(1);
+            }
+        } else {
+            break;
+        }
+    }
+
+    // Units
+    let remainder = lex.remainder();
+    if remainder.starts_with("ms") {
+        lex.bump(2);
+    } else if remainder.starts_with("s") {
+        let after_s = &remainder[1..];
+        if !after_s.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            lex.bump(1);
+        }
+    } else if remainder.starts_with("ticks") {
+        lex.bump(5);
+    } else if remainder.starts_with('%') {
+        lex.bump(1);
+    }
+
+    lex.slice().to_string()
 }
 
 #[cfg(test)]

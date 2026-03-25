@@ -12,6 +12,17 @@ Tenuto is built on a philosophy of strict decoupling. The core compiler (`tenuto
 *   **Memory Safety:** The boundary between Rust (Wasm) and TypeScript is strictly typed. Memory allocated in Wasm must be explicitly freed.
 *   **Immutability:** Treat the AST and IR as immutable data structures once generated.
 
+## The Shadow Pipeline Protocol
+
+Tenuto 3.0 operates under a **Dual-Track Mandate**. Any change to the compiler logic must be implemented in both TypeScript (for the live web preview scaffolding) and Rust (for the high-performance core).
+
+*   **TypeScript Scaffolding:** Used for the web preview and rapid prototyping.
+*   **Rust Core (`tenutoc`):** The absolute single source of truth and high-performance engine.
+
+### Wasm Compilation
+
+Because the cloud environment is sandboxed, Wasm compilation is handled locally by the developer using `wasm-pack`. The compiled output must be committed to the `public/pkg` directory.
+
 ## Testing Rules
 
 All new features and bug fixes must be accompanied by rigorous testing.

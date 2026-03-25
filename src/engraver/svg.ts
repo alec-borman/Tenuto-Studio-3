@@ -4,6 +4,13 @@ import { SMUFL_METADATA } from './smufl';
 import { Skyline } from './skyline';
 import { Kurbo } from './kurbo';
 
+/**
+ * The SVGEngraver is responsible for rendering the AST into a professional-grade SVG score.
+ * 
+ * It utilizes a Skyline Collision Detection algorithm to ensure slurs, ties, and articulations
+ * do not intersect with noteheads or stems. It also leverages SMuFL (Standard Music Font Layout)
+ * glyphs for rendering musical symbols like clefs, dynamics, and articulations with high fidelity.
+ */
 export class SVGEngraver {
   private layoutEngine: EngraverLayout;
   private ast: AST | null = null;
@@ -118,6 +125,10 @@ export class SVGEngraver {
     let currentX = SYSTEM_START_X; // Start rendering notes AFTER the clef margin
     for (const measure of system.measures) {
       svg += `<g transform="translate(${currentX}, 0)">`;
+      
+      if (measure.measure.number !== 1) {
+        svg += `<text x="0" y="-15" font-family="serif" font-size="12px" font-style="italic" fill="#666">${measure.measure.number}</text>`;
+      }
       
       const accidentalState: Record<string, Record<string, string>> = {};
 
@@ -499,6 +510,32 @@ export class SVGEngraver {
 
       svg += `<line x1="${stemX}" y1="${stemStartY}" x2="${stemX}" y2="${stemEndY}" class="stem" />`;
       
+      // Draw roll modifiers (tremolo slashes)
+      let rollCount = 0;
+      if (note.modifiers) {
+        const rollMod = note.modifiers.find(m => m.startsWith('roll('));
+        if (rollMod) {
+          const match = rollMod.match(/roll\((\d+)\)/);
+          if (match) rollCount = parseInt(match[1], 10);
+        }
+      }
+      
+      if (rollCount > 0) {
+        const numSlashes = Math.min(3, rollCount);
+        const slashSpacing = 5 * scale;
+        const slashWidth = 12 * scale;
+        const slashAngle = -15; // degrees
+        
+        const stemDir = stemUp ? 1 : -1;
+        const dx = slashWidth / 2;
+        const dy = dx * Math.tan(slashAngle * Math.PI / 180);
+        
+        for (let i = 0; i < numSlashes; i++) {
+          const slashY = stemEndY + stemDir * (10 * scale + i * slashSpacing);
+          svg += `<line x1="${stemX - dx}" y1="${slashY - dy}" x2="${stemX + dx}" y2="${slashY + dy}" stroke="#000" stroke-width="${2 * scale}" />`;
+        }
+      }
+
       // Update skylines for stem
       topSkyline.insert((measureX + stemX - 1) / 10, 0.2, Math.min(stemStartY, stemEndY));
       bottomSkyline.insert((measureX + stemX - 1) / 10, 0.2, Math.max(stemStartY, stemEndY));
@@ -582,7 +619,24 @@ export class SVGEngraver {
             resolvedY = topSkyline.drop((measureX + x) / 10, 1.5, 1.5, artY);
           }
           
-          if (mod === 'marc') {
+          if (dynamics.includes(mod)) {
+            let dynSvg = '';
+            let currentOffsetX = 0;
+            for (let i = 0; i < mod.length; i++) {
+              const char = mod[i];
+              let glyphName = '';
+              if (char === 'p') glyphName = 'dynamicPiano';
+              else if (char === 'f') glyphName = 'dynamicForte';
+              else if (char === 'm') glyphName = 'dynamicMezzo';
+              
+              if (glyphName && SMUFL_METADATA[glyphName]) {
+                const glyph = SMUFL_METADATA[glyphName];
+                dynSvg += `<path d="${glyph.path}" transform="translate(${currentOffsetX}, 0)" fill="#1a1a1a" />`;
+                currentOffsetX += 8; // Shift for next character
+              }
+            }
+            svg += `<g transform="translate(${x + 5}, ${resolvedY + 5}) scale(0.8)">${dynSvg}</g>`;
+          } else if (mod === 'marc') {
             const my = direction === 1 ? resolvedY + 6 : resolvedY - 2;
             const dirFlip = direction === 1 ? -1 : 1;
             svg += `<polygon points="${x},${my+4*dirFlip} ${x+5},${my-4*dirFlip} ${x+10},${my+4*dirFlip} ${x+5},${my+1*dirFlip}" fill="#1a1a1a" />`;
@@ -601,15 +655,9 @@ export class SVGEngraver {
           const yPos = targetStaffY + 65;
           
           if (mod === 'crescendo') {
-            svg += `
-              <line x1="${startX}" y1="${yPos}" x2="${endX}" y2="${yPos - 5}" stroke="#000" stroke-width="1" />
-              <line x1="${startX}" y1="${yPos}" x2="${endX}" y2="${yPos + 5}" stroke="#000" stroke-width="1" />
-            `;
+            svg += `<path d="M ${startX} ${yPos} L ${endX} ${yPos - 5} M ${startX} ${yPos} L ${endX} ${yPos + 5}" stroke="#1a1a1a" stroke-width="1.2" fill="none" />`;
           } else {
-            svg += `
-              <line x1="${startX}" y1="${yPos - 5}" x2="${endX}" y2="${yPos}" stroke="#000" stroke-width="1" />
-              <line x1="${startX}" y1="${yPos + 5}" x2="${endX}" y2="${yPos}" stroke="#000" stroke-width="1" />
-            `;
+            svg += `<path d="M ${startX} ${yPos - 5} L ${endX} ${yPos} M ${startX} ${yPos + 5} L ${endX} ${yPos}" stroke="#1a1a1a" stroke-width="1.2" fill="none" />`;
           }
         }
       }

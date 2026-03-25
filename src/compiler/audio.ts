@@ -23,6 +23,16 @@ export interface AudioEvent {
   curve?: string;
 }
 
+/**
+ * The AudioEventGenerator translates the declarative AST into a flat array of AudioEvents.
+ * It handles the unrolling of macros, tuplets, and ratchets, and resolves variables.
+ * 
+ * In Sprint 7, the routing pipeline was upgraded to use Tone.js.
+ * The generator extracts `.fx()` modifiers (e.g., `fx("bitcrusher", @{bits: 4})`) 
+ * and attaches them to the generated AudioEvents. The AudioEngine then uses these 
+ * properties to dynamically instantiate Tone.js effect classes (Reverb, FeedbackDelay, 
+ * Distortion, BitCrusher, Chorus) and route the instrument's bus through them.
+ */
 export class AudioEventGenerator {
   private bpm: number = 120;
   private vars: Record<string, any> = {};
@@ -219,34 +229,25 @@ export class AudioEventGenerator {
                   
                   const { pan, orbit, fx } = this.processModifiers(event.modifiers, voiceTime, durationInSeconds, def.patch, events);
 
-                  events.push({
-                    time: voiceTime,
-                    note: midiNote,
-                    duration: durationInSeconds,
-                    velocity,
-                    instrument: def.patch,
-                    style: def.style,
-                    env: resolvedEnv,
-                    src: def.src,
-                    push: event.push,
-                    pull: event.pull,
-                    modifiers: event.modifiers,
-                    pan,
-                    orbit,
-                    fx
-                  });
-                }
-              } else if (event.type === 'chord') {
-                for (const note of event.notes) {
-                  if (note.pitch !== 'r') {
-                    const midiNote = this.resolvePitch(note.pitch, note.octave, note.accidental, def);
-                    const { pan, orbit, fx } = this.processModifiers(event.modifiers, voiceTime, durationInSeconds, def.patch, events);
+                  let rollCount = 1;
+                  if (event.modifiers) {
+                    const rollMod = event.modifiers.find(m => m.startsWith('roll('));
+                    if (rollMod) {
+                      const match = rollMod.match(/roll\((\d+)\)/);
+                      if (match) rollCount = parseInt(match[1], 10);
+                    }
+                  }
 
+                  const subDuration = durationInSeconds / rollCount;
+
+                  for (let r = 0; r < rollCount; r++) {
+                    const subTime = voiceTime + (r * subDuration);
+                    
                     events.push({
-                      time: voiceTime,
+                      time: subTime,
                       note: midiNote,
-                      duration: durationInSeconds,
-                      velocity: 80,
+                      duration: subDuration,
+                      velocity,
                       instrument: def.patch,
                       style: def.style,
                       env: resolvedEnv,
@@ -258,6 +259,45 @@ export class AudioEventGenerator {
                       orbit,
                       fx
                     });
+                  }
+                }
+              } else if (event.type === 'chord') {
+                for (const note of event.notes) {
+                  if (note.pitch !== 'r') {
+                    const midiNote = this.resolvePitch(note.pitch, note.octave, note.accidental, def);
+                    const { pan, orbit, fx } = this.processModifiers(event.modifiers, voiceTime, durationInSeconds, def.patch, events);
+
+                    let rollCount = 1;
+                    if (event.modifiers) {
+                      const rollMod = event.modifiers.find(m => m.startsWith('roll('));
+                      if (rollMod) {
+                        const match = rollMod.match(/roll\((\d+)\)/);
+                        if (match) rollCount = parseInt(match[1], 10);
+                      }
+                    }
+
+                    const subDuration = durationInSeconds / rollCount;
+
+                    for (let r = 0; r < rollCount; r++) {
+                      const subTime = voiceTime + (r * subDuration);
+                      
+                      events.push({
+                        time: subTime,
+                        note: midiNote,
+                        duration: subDuration,
+                        velocity: 80,
+                        instrument: def.patch,
+                        style: def.style,
+                        env: resolvedEnv,
+                        src: def.src,
+                        push: event.push,
+                        pull: event.pull,
+                        modifiers: event.modifiers,
+                        pan,
+                        orbit,
+                        fx
+                      });
+                    }
                   }
                 }
               } else if (event.type === 'tuplet') {

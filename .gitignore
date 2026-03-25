@@ -11,3 +11,6 @@ coverage/
 tenutoc/target/
 public/pkg/
 Cargo.lock
+
+# Vector DB
+.lancedb/

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
-import { Play, Square, Code, FileCode, Upload, Link as LinkIcon, Cpu, Globe } from 'lucide-react';
+import { Play, Square, Code, FileCode, Upload, Link as LinkIcon, Cpu, Globe, Trash2 } from 'lucide-react';
 import * as Tone from 'tone';
 import { registerTenutoLanguage } from './editor/tenutoLanguage';
 import { AudioEngine } from './audio/engine';
@@ -376,7 +376,7 @@ export default function App() {
     if (audioEngineRef.current) {
       audioEngineRef.current.stopAll();
       // Ensure instruments are loaded before playback (since we deferred this from boot)
-      setStatus('Loading instruments...');
+      setStatus('Loading Assets...');
       await audioEngineRef.current.loadInstruments(audioEventsRef.current);
       setStatus('Playing...');
     }
@@ -541,6 +541,17 @@ export default function App() {
           </div>
 
           <div className="h-6 w-px bg-zinc-800 mx-2"></div>
+          
+          <button
+            onClick={async () => {
+              await caches.delete('tenuto-assets');
+              setStatus('Asset Vault Cleared');
+            }}
+            className="p-1.5 rounded text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors"
+            title="Clear Asset Cache"
+          >
+            <Trash2 size={16} />
+          </button>
           
           <button 
             onClick={isPlaying ? handleStop : handlePlay}
