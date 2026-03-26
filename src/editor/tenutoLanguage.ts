@@ -125,7 +125,7 @@ export function registerTenutoLanguage(monaco: any, manifest?: Record<string, an
       const suggestions: any[] = [];
 
       if (textBeforeCursor.endsWith('patch="') || textBeforeCursor.endsWith('src="')) {
-        const manifestKeys = manifest ? Object.keys(manifest) : ['piano', '808_sub', 'vsco_cello'];
+        const manifestKeys = manifest && manifest.instruments ? Object.keys(manifest.instruments) : manifest ? Object.keys(manifest) : ['piano', '808_sub', 'vsco_cello'];
         manifestKeys.forEach(key => {
           suggestions.push({
             label: key,

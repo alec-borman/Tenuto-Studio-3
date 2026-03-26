@@ -1,5 +1,55 @@
 {
-  "piano": { "style": "standard", "patch": "acoustic_grand_piano" },
-  "808_sub": { "style": "synth", "env": { "a": "10ms", "d": "1s", "s": "50%", "r": "200ms" } },
-  "vsco_cello": { "style": "concrete", "src": "https://assets.tenuto.dev/vsco/cello_sust_c4.wav" }
+  "instruments": {
+    "vsco_cello_sustain": {
+      "source": "R2",
+      "format": "FLAC",
+      "regions": [
+        {
+          "sample": "https://assets.tenuto.dev/vsco2/cello/sustain_C2.flac",
+          "lokey": 36,
+          "hikey": 39,
+          "pitch_keycenter": 36,
+          "lovel": 0,
+          "hivel": 127
+        }
+      ]
+    },
+    "virtuosity_kick": {
+      "source": "R2",
+      "format": "FLAC",
+      "regions": [
+        {
+          "sample": "https://assets.tenuto.dev/virtuosity/kick/kick_v1.flac",
+          "lokey": 36,
+          "hikey": 36,
+          "pitch_keycenter": 36,
+          "lovel": 0,
+          "hivel": 3
+        },
+        {
+          "sample": "https://assets.tenuto.dev/virtuosity/kick/kick_v36.flac",
+          "lokey": 36,
+          "hikey": 36,
+          "pitch_keycenter": 36,
+          "lovel": 124,
+          "hivel": 127
+        }
+      ]
+    },
+    "salamander_piano": {
+      "source": "R2",
+      "format": "FLAC",
+      "license": "CC-BY 3.0",
+      "regions": [
+        {
+          "sample": "https://assets.tenuto.dev/salamander/piano/A0v1.flac",
+          "lokey": 21,
+          "hikey": 22,
+          "pitch_keycenter": 21,
+          "lovel": 0,
+          "hivel": 127
+        }
+      ]
+    }
+  }
 }

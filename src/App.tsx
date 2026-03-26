@@ -68,8 +68,9 @@ export default function App() {
   useEffect(() => {
     const engine = new AudioEngine();
     audioEngineRef.current = engine;
+    setStatus('Loading Assets...');
     engine.loadManifest().then(() => {
-      setStatus('Manifest Loaded');
+      setStatus('Cloud Assets: Online');
       // Re-register language with manifest
       if (monacoRef.current) {
         registerTenutoLanguage(monacoRef.current, engine.manifest);

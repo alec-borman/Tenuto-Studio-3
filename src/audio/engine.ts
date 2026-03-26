@@ -224,10 +224,11 @@ export class AudioEngine {
     }
 
     for (const event of events) {
-      const manifestEntry = this.manifest[event.instrument];
+      const patchValue = (event as any).patch;
+      const manifestEntry = this.manifest.instruments?.[event.src || patchValue] || this.manifest[event.instrument];
       const style = manifestEntry?.style || event.style;
       const src = manifestEntry?.src || event.src;
-      const patch = manifestEntry?.patch || event.instrument;
+      const patch = manifestEntry?.patch || patchValue || event.instrument;
 
       if (style === 'standard') {
         const instrumentName = PATCH_MAP[patch] || patch;
@@ -240,8 +241,16 @@ export class AudioEngine {
           promises.push(sf.loaded());
         }
       } else if (style === 'concrete' && src) {
-        if (!src.startsWith('bus://') && !this.audioBuffers[src]) {
-          promises.push(this.loadAudioBuffer(src));
+        if (!src.startsWith('bus://')) {
+          if (manifestEntry && manifestEntry.regions) {
+            for (const region of manifestEntry.regions) {
+              if (!this.audioBuffers[region.sample]) {
+                promises.push(this.loadAudioBuffer(region.sample));
+              }
+            }
+          } else if (!this.audioBuffers[src]) {
+            promises.push(this.loadAudioBuffer(src));
+          }
         }
       }
     }
@@ -267,20 +276,50 @@ export class AudioEngine {
     convolver.buffer = impulse;
   }
 
+  private async fetchSampleRange(url: string, start: number, end: number): Promise<AudioBuffer | null> {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'Range': `bytes=${start}-${end}`
+        }
+      });
+
+      if (response.status === 200) {
+        console.warn(`[TEDP] Architectural Guard: Fetched whole file instead of range for ${url}. Check Cloudflare Cache Rules.`);
+      } else if (response.status !== 206) {
+        throw new Error(`Unexpected status code: ${response.status}`);
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      // Mocking Symphonia logic for FLAC/OGG decoding using WebAudio fallback
+      const audioBuffer = await this.context.decodeAudioData(arrayBuffer);
+      return audioBuffer;
+    } catch (e) {
+      console.error(`[TEDP] Failed to fetch sample range for ${url}`, e);
+      return null;
+    }
+  }
+
   private async loadAudioBuffer(url: string) {
     try {
       const cache = await caches.open('tenuto-assets');
       let response = await cache.match(url);
       
+      let audioBuffer: AudioBuffer | null = null;
+
       if (response) {
         console.log(`[TEDP] Cache hit for ${url}`);
+        const arrayBuffer = await response.arrayBuffer();
+        audioBuffer = await this.context.decodeAudioData(arrayBuffer);
       } else {
-        response = await fetch(url);
-        await cache.put(url, response.clone());
+        // Mocking Symphonia JIT streaming: fetch first 1MB
+        audioBuffer = await this.fetchSampleRange(url, 0, 1048576);
+        if (!audioBuffer) {
+          throw new Error(`Failed to fetch sample range for ${url}`);
+        }
+        // In a real implementation, we'd cache the decoded buffer or the raw bytes
       }
       
-      const arrayBuffer = await response.arrayBuffer();
-      const audioBuffer = await this.context.decodeAudioData(arrayBuffer);
       this.audioBuffers[url] = audioBuffer;
       
       // Send buffer to worklet
@@ -308,6 +347,21 @@ export class AudioEngine {
    * @param startTime - The base AudioContext time (in seconds) to schedule the events against.
    * @returns A Promise that resolves when the playback has been successfully scheduled.
    */
+  private resolveSampleUrl(src: string | undefined, note: number, velocity: number): string | undefined {
+    if (!src) return undefined;
+    if (src.startsWith('bus://')) return src;
+
+    const manifestEntry = this.manifest.instruments?.[src];
+    if (manifestEntry && manifestEntry.regions) {
+      for (const region of manifestEntry.regions) {
+        if (note >= region.lokey && note <= region.hikey && velocity >= region.lovel && velocity <= region.hivel) {
+          return region.sample;
+        }
+      }
+    }
+    return src;
+  }
+
   public async play(events: AudioEvent[], startTime: number) {
     await Tone.start();
     if (this.context.state === 'suspended') {
@@ -325,10 +379,11 @@ export class AudioEngine {
       if (e.push) time -= e.push / 1000000;
       if (e.pull) time += e.pull / 1000000;
 
-      const manifestEntry = this.manifest[e.instrument];
+      const patchValue = (e as any).patch;
+      const manifestEntry = this.manifest.instruments?.[e.src || patchValue] || this.manifest[e.instrument];
       const style = manifestEntry?.style || e.style;
       const src = manifestEntry?.src || e.src;
-      const patch = manifestEntry?.patch || e.instrument;
+      const patch = manifestEntry?.patch || patchValue || e.instrument;
       const env = manifestEntry?.env || e.env;
 
       return { ...e, time: startTime + time, style, src, patch, env };
@@ -413,7 +468,7 @@ export class AudioEngine {
             this.floatView[offset + 10] = r;
             
             // 11: buffer_id
-            this.floatView[offset + 11] = this.getBufferId(event.src);
+            this.floatView[offset + 11] = this.getBufferId(this.resolveSampleUrl(event.src, event.note || 0, event.velocity || 80));
             
             // modifiers
             let playbackRate = 1;
@@ -476,7 +531,7 @@ export class AudioEngine {
               d: parseFloat(event.env?.d || '0.1') / (event.env?.d?.endsWith('ms') ? 1000 : 1),
               s: parseFloat(event.env?.s || '50') / 100,
               r: parseFloat(event.env?.r || '0.1') / (event.env?.r?.endsWith('ms') ? 1000 : 1),
-              bufferId: this.getBufferId(event.src),
+              bufferId: this.getBufferId(this.resolveSampleUrl(event.src, event.note || 0, event.velocity || 80)),
               playbackRate: 1, // Add logic for reverse/slice if needed
               sliceIdx: 0,
               glideTime: 0,
