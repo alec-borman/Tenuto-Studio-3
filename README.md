@@ -266,7 +266,7 @@ npm run dev -- --force
 *   **Manual Documentation:** Comprehensive guides and language specifications are available in the `/docs` folder.
 *   Adding this section to your `README.md` is the final "Steel Beam" in your skyscraper. It transforms Tenuto 3.0 from a creative tool into a **Legal Infrastructure**. 
 
-By explicitly addressing the **authorship gap** that currently plagues "Black Box" AI (like Suno or Udio), you are positioning Tenuto as the only choice for professional composers who need to own their royalties and protect their IP.
+
 
 ---
 
