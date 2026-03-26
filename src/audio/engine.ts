@@ -42,6 +42,7 @@ export class AudioEngine {
   private nextInstrumentId = 1;
   private bufferIdMap: Record<string, number> = {};
   private nextBufferId = 1;
+  public manifest: Record<string, any> = {};
 
   private getInstrumentId(name: string): number {
     if (!this.instrumentIdMap[name]) {
@@ -61,6 +62,20 @@ export class AudioEngine {
 
   constructor() {
     // Context initialization moved to init() to prevent TypeError on boot
+  }
+
+  public async loadManifest() {
+    try {
+      const response = await fetch('/sounds.json');
+      if (response.ok) {
+        this.manifest = await response.json();
+        console.log('[TEDP] Asset Manifest Loaded successfully.');
+      } else {
+        console.warn('[TEDP] Failed to load Asset Manifest.');
+      }
+    } catch (e) {
+      console.error('[TEDP] Error loading Asset Manifest:', e);
+    }
   }
 
   /**
@@ -209,8 +224,13 @@ export class AudioEngine {
     }
 
     for (const event of events) {
-      if (event.style === 'standard') {
-        const instrumentName = PATCH_MAP[event.instrument] || event.instrument;
+      const manifestEntry = this.manifest[event.instrument];
+      const style = manifestEntry?.style || event.style;
+      const src = manifestEntry?.src || event.src;
+      const patch = manifestEntry?.patch || event.instrument;
+
+      if (style === 'standard') {
+        const instrumentName = PATCH_MAP[patch] || patch;
         if (!this.soundfonts[instrumentName]) {
           const sf = new Soundfont(this.context, { 
             instrument: instrumentName as any,
@@ -219,9 +239,9 @@ export class AudioEngine {
           this.soundfonts[instrumentName] = sf;
           promises.push(sf.loaded());
         }
-      } else if (event.style === 'concrete' && event.src) {
-        if (!event.src.startsWith('bus://') && !this.audioBuffers[event.src]) {
-          promises.push(this.loadAudioBuffer(event.src));
+      } else if (style === 'concrete' && src) {
+        if (!src.startsWith('bus://') && !this.audioBuffers[src]) {
+          promises.push(this.loadAudioBuffer(src));
         }
       }
     }
@@ -299,12 +319,19 @@ export class AudioEngine {
       return;
     }
     
-    // Adjust event times relative to startTime
+    // Adjust event times relative to startTime and merge manifest
     const adjustedEvents = events.map(e => {
       let time = e.time;
       if (e.push) time -= e.push / 1000000;
       if (e.pull) time += e.pull / 1000000;
-      return { ...e, time: startTime + time };
+
+      const manifestEntry = this.manifest[e.instrument];
+      const style = manifestEntry?.style || e.style;
+      const src = manifestEntry?.src || e.src;
+      const patch = manifestEntry?.patch || e.instrument;
+      const env = manifestEntry?.env || e.env;
+
+      return { ...e, time: startTime + time, style, src, patch, env };
     });
 
     console.log("TEDP: Dispatching events to hardware", adjustedEvents);
@@ -475,7 +502,8 @@ export class AudioEngine {
 
   private scheduleSoundfont(event: AudioEvent) {
     if (event.note === undefined) return;
-    const instrumentName = PATCH_MAP[event.instrument] || 'acoustic_grand_piano';
+    const patch = (event as any).patch || event.instrument;
+    const instrumentName = PATCH_MAP[patch] || patch || 'acoustic_grand_piano';
     const sf = this.soundfonts[instrumentName];
     try {
       if (sf) {

@@ -66,7 +66,15 @@ export default function App() {
   });
 
   useEffect(() => {
-    audioEngineRef.current = new AudioEngine();
+    const engine = new AudioEngine();
+    audioEngineRef.current = engine;
+    engine.loadManifest().then(() => {
+      setStatus('Manifest Loaded');
+      // Re-register language with manifest
+      if (monacoRef.current) {
+        registerTenutoLanguage(monacoRef.current, engine.manifest);
+      }
+    });
   }, []);
 
   const scheduleAudio = () => {
@@ -255,7 +263,7 @@ export default function App() {
   const handleEditorDidMount = (editor: any, monaco: any) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
-    registerTenutoLanguage(monaco);
+    registerTenutoLanguage(monaco, audioEngineRef.current?.manifest);
   };
 
   useEffect(() => {

@@ -1,0 +1,5 @@
+{
+  "piano": { "style": "standard", "patch": "acoustic_grand_piano" },
+  "808_sub": { "style": "synth", "env": { "a": "10ms", "d": "1s", "s": "50%", "r": "200ms" } },
+  "vsco_cello": { "style": "concrete", "src": "https://assets.tenuto.dev/vsco/cello_sust_c4.wav" }
+}

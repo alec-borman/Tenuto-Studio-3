@@ -12,7 +12,8 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "index": "tsx infra/indexer.ts",
-    "search": "tsx infra/query.ts"
+    "search": "tsx infra/query.ts",
+    "decompile": "tsx infra/decompile.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

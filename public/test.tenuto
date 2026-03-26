@@ -1,0 +1,7 @@
+tenuto "3.0" {
+  meta @{ title: "Test Score", tempo: 120, time: "4/4" }
+  def pno "Piano" style=standard patch="acoustic_grand_piano"
+  measure 1 {
+    pno: c4:4 e4:4 g4:4 c5:4 |
+  }
+}

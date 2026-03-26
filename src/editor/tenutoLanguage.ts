@@ -1,4 +1,4 @@
-export function registerTenutoLanguage(monaco: any) {
+export function registerTenutoLanguage(monaco: any, manifest?: Record<string, any>) {
   monaco.languages.register({ id: 'tenuto' });
 
   monaco.languages.setMonarchTokensProvider('tenuto', {
@@ -109,7 +109,7 @@ export function registerTenutoLanguage(monaco: any) {
   });
 
   monaco.languages.registerCompletionItemProvider('tenuto', {
-    triggerCharacters: ['.', '$', '@', ' '],
+    triggerCharacters: ['.', '$', '@', ' ', '"', '='],
     provideCompletionItems: (model: any, position: any) => {
       const word = model.getWordUntilPosition(position);
       const range = {
@@ -123,6 +123,19 @@ export function registerTenutoLanguage(monaco: any) {
       const textBeforeCursor = lineContent.substring(0, position.column - 1);
       
       const suggestions: any[] = [];
+
+      if (textBeforeCursor.endsWith('patch="') || textBeforeCursor.endsWith('src="')) {
+        const manifestKeys = manifest ? Object.keys(manifest) : ['piano', '808_sub', 'vsco_cello'];
+        manifestKeys.forEach(key => {
+          suggestions.push({
+            label: key,
+            kind: monaco.languages.CompletionItemKind.Value,
+            insertText: key,
+            range: range
+          });
+        });
+        return { suggestions };
+      }
 
       // Check if inside a chord
       const lastOpenBracket = textBeforeCursor.lastIndexOf('[');

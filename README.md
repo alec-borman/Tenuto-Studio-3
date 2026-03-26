@@ -46,6 +46,16 @@ npm run index
 npm run search "How does the AudioEventGenerator handle roll modifiers?"
 ```
 
+### The Corpus Builder (Decompiling MIDI)
+
+To unlock decades of existing music and solve the "Blank Page" problem, Tenuto 3.0 includes a standalone Semantic Decompiler CLI. This implements the Reverse Inference Heuristics defined in Addendum D of the Language Specification.
+
+You can convert standard MIDI files into idiomatic Tenuto 3.0 code (`.ten` files) using the following command:
+
+```bash
+npm run decompile <input.mid> <output.ten>
+```
+
 ---
 
 ## 🏗️ Current State: The Iterative Hybrid Architecture
@@ -76,6 +86,18 @@ Tenuto Studio 3.0 is designed for **Zero-Cost, High-Fidelity Distribution**:
 *   **Hosting:** Distributed via Cloudflare Pages with native COOP/COEP headers to unlock `SharedArrayBuffer` multithreading.
 *   **Assets:** Large-scale acoustic samples are served from Cloudflare R2 with explicit CORP headers for security-perimeter penetration.
 *   **Sovereignty:** 100% client-side execution via Wasm; no server-side "Gatekeepers" required for compilation or rendering.
+
+### Embedding Tenuto Scores (Web Component)
+
+You can easily embed interactive Tenuto scores on any webpage using the framework-agnostic `<tenuto-score>` Web Component. This encapsulates the compiler, SVG engraver, and Audio engine into a single HTML tag.
+
+```html
+<!-- Import the component bundle -->
+<script type="module" src="https://your-domain.com/tenuto-score.js"></script>
+
+<!-- Embed the score -->
+<tenuto-score src="https://your-domain.com/scores/my-song.tenuto"></tenuto-score>
+```
 
 ---
 
