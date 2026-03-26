@@ -1,5 +1,5 @@
 {
-  "name": "Tenuto Studio 3",
-  "description": "",
+  "name": "Tenuto Studio 3.0",
+  "description": "The definitive system of record for music. A deterministic, declarative domain-specific language that unifies classical notation and modern DSP.",
   "requestFramePermissions": []
 }
