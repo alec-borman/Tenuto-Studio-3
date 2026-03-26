@@ -60,21 +60,52 @@ export class AudioEngine {
     return this.bufferIdMap[src];
   }
 
+  private sovereignConnect(source: any, destination: any, outIdx: number = 0, inIdx: number = 0) {
+    try {
+      // 1. Manually unwrap the destination to find the raw native node
+      let rawDest = destination;
+      while (rawDest && (rawDest.input || rawDest.get)) {
+        if (rawDest.input && rawDest.input !== rawDest) {
+          rawDest = rawDest.input;
+        } else if (rawDest.get && typeof rawDest.get === 'function' && rawDest.get() !== rawDest) {
+          rawDest = rawDest.get();
+        } else {
+          break;
+        }
+      }
+      
+      // 2. Manually unwrap the source to find the raw native node
+      let rawSrc = source;
+      while (rawSrc && rawSrc.output && rawSrc.output !== rawSrc) {
+        rawSrc = rawSrc.output;
+      }
+
+      // 3. Perform a "Blind Call" on the AudioNode prototype. 
+      // This forces the browser to execute the connection even if 'instanceof' fails.
+      const nativeConnect = AudioNode.prototype.connect;
+      nativeConnect.call(rawSrc, rawDest, outIdx, inIdx);
+      
+      console.log(`[TEDP] Sovereign Pipe established: ${rawSrc.constructor?.name} -> ${rawDest.constructor?.name}`);
+    } catch (e) {
+      console.warn("[TEDP] Sovereign Pipe failed, trying legacy fallback...", e);
+      if (source.connect) source.connect(destination, outIdx, inIdx);
+    }
+  }
+
   constructor() {
     // Context initialization moved to init() to prevent TypeError on boot
   }
 
   public async loadManifest() {
     try {
-      const response = await fetch('/sounds.json');
-      if (response.ok) {
-        this.manifest = await response.json();
-        console.log('[TEDP] Asset Manifest Loaded successfully.');
-      } else {
-        console.warn('[TEDP] Failed to load Asset Manifest.');
-      }
+      const response = await fetch('./sounds.json'); // Try relative to current directory
+      if (!response.ok) throw new Error("Status: " + response.status);
+      this.manifest = await response.json();
+      console.log('[TEDP] Asset Manifest Loaded.');
     } catch (e) {
-      console.error('[TEDP] Error loading Asset Manifest:', e);
+      console.warn('[TEDP] Attempting fallback manifest path...');
+      const resp = await fetch('/sounds.json'); // Try absolute root
+      this.manifest = await resp.json();
     }
   }
 
@@ -89,10 +120,13 @@ export class AudioEngine {
     
     // 1. Force Native AudioContext to bypass iframe constructor mismatch
     if (!this.context) {
-      const NativeAudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      const NativeAudioContext = (window.AudioContext || (window as any).webkitAudioContext);
       this.context = new NativeAudioContext();
-      Tone.setContext(this.context);
+      
+      // CRITICAL: Anchor Tone.js to this specific context immediately.
+      // This ensures every Tone.Gain created thereafter belongs to the same realm.
       await Tone.start();
+      Tone.setContext(this.context); 
     }
     
     if (this.context.state === 'suspended') {
@@ -145,6 +179,7 @@ export class AudioEngine {
       };
 
       this.isInitialized = true;
+      console.log("[TEDP] Realm Anchor Successful. Context:", this.context.state);
     } catch (e) {
       console.error("Failed to initialize AudioWorklet", e);
     }
@@ -186,7 +221,7 @@ export class AudioEngine {
         
         // Connect the worklet output for this instrument to its bus
         if (this.workletNode) {
-          this.workletNode.connect(bus as any, i);
+          this.sovereignConnect(this.workletNode, bus, i, 0);
         }
         
         // Check if this track has FX defined in the AST defs or events
@@ -212,13 +247,13 @@ export class AudioEngine {
           }
           
           if (fxNode) {
-            bus.connect(fxNode);
-            fxNode.connect(Tone.Destination);
+            this.sovereignConnect(bus, fxNode);
+            this.sovereignConnect(fxNode, Tone.Destination);
           } else {
-            bus.connect(Tone.Destination);
+            this.sovereignConnect(bus, Tone.Destination);
           }
         } else {
-          bus.connect(Tone.Destination);
+          this.sovereignConnect(bus, Tone.Destination);
         }
       }
     }
@@ -600,7 +635,7 @@ export class AudioEngine {
     const bus = this.trackBuses[event.instrument];
     if (bus) {
       osc.connect(gain);
-      gain.connect(bus as any);
+      this.sovereignConnect(gain, bus);
     } else {
       osc.connect(gain);
       gain.connect(this.context.destination);

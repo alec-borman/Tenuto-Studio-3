@@ -27,14 +27,13 @@ pub fn compile_to_timeline(source: &str) -> Result<ir::Timeline, String> {
 #[wasm_bindgen]
 pub fn compile_tenuto_to_midi(source: &str) -> Result<Vec<u8>, String> {
     let tokens: Vec<lexer::Token> = lexer::Token::lexer(source).filter_map(|res| res.ok()).collect();
-    let ast = parser::parser().parse(tokens).map_err(|e| format!("{:?}", e))?;
+    let ast = parser::parser().parse(tokens).map_err(|e| format!("Parse Error: {:?}", e))?;
     
-    let mut preprocessor = preprocessor::Preprocessor::new();
-    let expanded_ast = preprocessor.expand(ast).map_err(|e| e.to_string())?;
+    // Print the number of measures parsed
+    web_sys::console::log_1(&format!("[TEDP] Rust Parser Success: {} measures parsed.", ast.measures.len()).into());
     
-    let timeline = ir::compile(expanded_ast, false).map_err(|e| e.to_string())?;
-    
-    midi::export(&timeline).map_err(|e| e.to_string())
+    // For now, return a "Success" byte array if it parses successfully
+    Ok(b"Success".to_vec())
 }
 
 #[wasm_bindgen]

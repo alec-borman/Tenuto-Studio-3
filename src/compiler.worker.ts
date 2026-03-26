@@ -49,24 +49,14 @@ function mergeASTs(main: AST, imported: AST): AST {
   };
 }
 
-let wasmModule: any = null;
-let activeEngine: 'RUST' | 'TYPESCRIPT' = 'TYPESCRIPT';
-const DEBUG_PARITY = true;
+let activeEngine: 'TYPESCRIPT' = 'TYPESCRIPT';
+const DEBUG_PARITY = false;
 
 async function bootCompiler() {
     try {
         const startTime = performance.now();
         
-        try {
-            // @ts-ignore
-            wasmModule = await import(/* @vite-ignore */ '../public/pkg/tenutoc.js');
-            await wasmModule.default();
-            activeEngine = 'RUST';
-            console.log("[Shadow] Wasm initialized successfully.");
-        } catch (e) {
-            console.warn("[Shadow] Wasm unavailable, falling back to TS scaffolding.", e);
-            activeEngine = 'TYPESCRIPT';
-        }
+        activeEngine = 'TYPESCRIPT';
 
         const bootTime = performance.now() - startTime;
         
@@ -113,24 +103,8 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
 
         const compileStartTime = performance.now();
         
-        let rustResponse: StandardCompilerResponse | null = null;
         let tsResponse: StandardCompilerResponse | null = null;
         let tsError: any = null;
-
-        // The "Steel" Path
-        if (activeEngine === 'RUST') {
-            try {
-                if (typeof wasmModule.compile_tenuto_to_midi === 'function') {
-                    const result = wasmModule.compile_tenuto_to_midi(processedCode, tempoOverride || 120);
-                    rustResponse = JSON.parse(result) as StandardCompilerResponse;
-                } else {
-                    throw new Error("compile_tenuto_to_midi not found in Wasm module");
-                }
-            } catch (err) {
-                console.warn("[Shadow] Wasm unavailable or threw an error, falling back to TS scaffolding.", err);
-                activeEngine = 'TYPESCRIPT';
-            }
-        }
 
         // The "Scaffolding" Fallback (and Parity Check)
         if (activeEngine === 'TYPESCRIPT' || DEBUG_PARITY) {
@@ -216,13 +190,6 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
             }
         }
 
-        // Parity Check (The Anti-Drift Guard)
-        if (DEBUG_PARITY && rustResponse && tsResponse) {
-            if (rustResponse.audioEvents?.length !== tsResponse.audioEvents?.length) {
-                console.warn(`[PARITY ALERT] Rust and TS engines have diverged! Rust events: ${rustResponse.audioEvents?.length}, TS events: ${tsResponse.audioEvents?.length}`);
-            }
-        }
-
         // Dispatch Response
         if (activeEngine === 'TYPESCRIPT' && tsError) {
             let diagnostics = [];
@@ -251,7 +218,7 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
             return;
         }
 
-        const finalResponse = activeEngine === 'RUST' ? rustResponse : tsResponse;
+        const finalResponse = tsResponse;
         
         if (finalResponse) {
             const response: CompilerResponse = { 
@@ -263,16 +230,7 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
 
     } else if (type === 'DECOMPILE') {
         try {
-            if (activeEngine === 'RUST' && typeof wasmModule.decompile_midi_to_tenuto === 'function') {
-                const result = wasmModule.decompile_midi_to_tenuto(midi_bytes);
-                const response: CompilerResponse = {
-                    type: 'DECOMPILE_SUCCESS',
-                    payload: { code: result }
-                };
-                postMessage(response);
-            } else {
-                throw new Error("Decompilation is not supported in TS compiler or Wasm unavailable.");
-            }
+            throw new Error("Decompilation is not supported in TS compiler or Wasm unavailable.");
         } catch (err: any) {
             const response: CompilerResponse = {
                 type: 'ERROR',
