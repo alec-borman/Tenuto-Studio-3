@@ -682,7 +682,7 @@ export class Parser {
             pull = parseInt(this.match(TokenType.Number).value, 10);
             this.match(TokenType.Symbol, ')');
           }
-        } else if (['slice', 'pan', 'orbit', 'fx', 'glide', 'cc', 'bu', 'bd'].includes(part)) {
+        } else if (['slice', 'pan', 'orbit', 'fx', 'glide', 'cc', 'bu', 'bd', 'roll'].includes(part)) {
           if (this.check(TokenType.Symbol, '(')) {
             this.advance();
             let args = '';

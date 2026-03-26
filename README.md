@@ -11,7 +11,7 @@
 
 What if you could capture every nuance of a musical composition—the pitches, rhythms, articulations, lyrics, micro‑timing, synthesizer envelopes, sample slices, and even the routing of effects—in a single, human‑readable text file? What if that same file could be instantly rendered as a beautifully engraved score, a perfectly quantized MIDI performance, a full‑fidelity audio mix, and a live‑coding session synchronized with Ableton Link?
 
-**Tenuto is that file.** It is a deterministic, declarative domain‑specific language that acts as the **system of record** for musical intent. It unifies the discrete logic of classical notation with the continuous physics of modern DSP into a single, human-readable "Narrow Waist" protocol. Like a Customer Relationship Management (CRM) system consolidates all client interactions, Tenuto consolidates every aspect of a musical work—from the ink on the page to the electricity in the speakers—into a single, version‑controllable, AI‑friendly format.
+**Tenuto is that file.** It is a deterministic, declarative domain‑specific language designed to be the **standard output format for AI music models**, providing a transparent, editable, and versionable alternative to "Black Box" audio generation. It unifies the discrete logic of classical notation with the continuous physics of modern DSP into a single, human-readable "Narrow Waist" protocol. Like a Customer Relationship Management (CRM) system consolidates all client interactions, Tenuto consolidates every aspect of a musical work—from the ink on the page to the electricity in the speakers—into a single, version‑controllable, AI‑friendly format.
 
 ### The "Narrow Waist" Philosophy
 Tenuto Studio 3.0 is built on a philosophy of **strict decoupling** between the pure-function compiler and the physics/rendering layers. 
@@ -128,6 +128,32 @@ The AudioEngine now supports professional-grade DSP effects powered by Tone.js:
 - **distortion**: `fx("distortion", @{amount: 0.5, dryWet: 0.5})`
 - **bitcrusher**: `fx("bitcrusher", @{bits: 4, dryWet: 0.5})`
 - **chorus**: `fx("chorus", @{speed: 1.5, delay: 3.5, depth: 0.7, dryWet: 0.5})`
+
+---
+
+## 🤖 The AI Bridge: From Intent to Infrastructure
+
+Because Tenuto is a text-based DSL, it is natively "fluent" in LLM (Large Language Model) contexts. Unlike a DAW binary file, an AI can read, write, and refactor Tenuto code to perform complex musical tasks that would take dozens of clicks in a traditional GUI. This enables a true "Zero-Skill" workflow where producers can focus on intent rather than infrastructure.
+
+### Producer Interaction Example
+
+**Prompt:** *"Give me a dark, aggressive 808 bassline. Make it stutter at the end of every 4 bars and add a lo-fi grit that fades in."*
+
+**Tenuto Output:**
+```tenuto
+// AI-Generated dark aggressive bass structure
+def bass "808" style=synth env=@{ a: 10ms, d: 500ms }
+
+measure 1-3 {
+  // Euclidean (3,8) rhythm provides the syncopated 'drive'
+  bass: c2:4(3,8) | 
+}
+
+measure 4 {
+  // .roll(32) creates the stutter, .fx automates the grit
+  bass: c2:2 c2:2.roll(32).fx("bitcrusher", @{bits: 4, dryWet: [0.0, 1.0]})
+}
+```
 
 ---
 
