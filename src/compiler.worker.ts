@@ -104,11 +104,11 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
         const compileStartTime = performance.now();
         
         let tsResponse: StandardCompilerResponse | null = null;
-        let tsError: any = null;
         let wasmDiagnostics: any[] = [];
         let wasmSuccess = false;
 
-        // Run Wasm compilation in parallel if available
+        // Track B: Defensive Wasm (Production Track)
+        // We assume the Wasm binary might be out of sync or return raw strings
         try {
             // @ts-ignore
             if (typeof self.compile_tenuto_to_midi === 'function') {
@@ -118,10 +118,10 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
             }
         } catch (err: any) {
             try {
-                // Try to parse the JSON diagnostics from the Wasm error string
+                // The JSON Guard: Attempt to parse structured diagnostics
                 wasmDiagnostics = JSON.parse(err.toString());
             } catch (parseErr) {
-                // Fallback if it's not JSON
+                // Legacy Fallback: Treat as raw string error
                 wasmDiagnostics = [{
                     code: 'E1000',
                     message: err.toString(),
@@ -131,125 +131,102 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
             }
         }
 
-        // The "Scaffolding" Fallback (and Parity Check)
-        if (activeEngine === 'TYPESCRIPT' || DEBUG_PARITY) {
-            try {
-                // 1. Run our TS Parser and Semantic Analyzer
-                const parser = new Parser(processedCode);
-                let ast = parser.parse();
-                
-                // Apply tempo override if provided
-                if (tempoOverride) {
-                    ast.meta.tempo = tempoOverride;
-                }
-                
-                // Resolve imports
-                if (ast.imports && ast.imports.length > 0) {
-                    for (const importPath of ast.imports) {
-                        if (STDLIB[importPath]) {
-                            const importedParser = new Parser(STDLIB[importPath]);
-                            const importedAst = importedParser.parse();
-                            ast = mergeASTs(ast, importedAst);
-                        } else {
-                            throw new ParserError(`Module not found: ${importPath}`, 1, 1);
-                        }
+        // Track A: TypeScript Authority (Preview Track)
+        // This track is the source of truth for the AI Studio environment
+        try {
+            // 1. Run our TS Parser and Semantic Analyzer
+            const parser = new Parser(processedCode);
+            let ast = parser.parse();
+            
+            // Apply tempo override if provided
+            if (tempoOverride) {
+                ast.meta.tempo = tempoOverride;
+            }
+            
+            // Resolve imports
+            if (ast.imports && ast.imports.length > 0) {
+                for (const importPath of ast.imports) {
+                    if (STDLIB[importPath]) {
+                        const importedParser = new Parser(STDLIB[importPath]);
+                        const importedAst = importedParser.parse();
+                        ast = mergeASTs(ast, importedAst);
+                    } else {
+                        throw new ParserError(`Module not found: ${importPath}`, 1, 1);
                     }
                 }
-
-                // Sprint 6: Graph Unrolling
-                const unroller = new GraphUnroller(ast);
-                const unrolledAst = unroller.unroll();
-
-                const analyzer = new SemanticAnalyzer(unrolledAst);
-                const semanticErrors = analyzer.analyze();
-                
-                // Parity Check Logging
-                if (wasmSuccess && (semanticErrors.length > 0 || tsError)) {
-                    console.warn("[Parity Mismatch] Rust Wasm succeeded, but TypeScript failed.");
-                } else if (!wasmSuccess && semanticErrors.length === 0 && !tsError) {
-                    console.warn("[Parity Mismatch] TypeScript succeeded, but Rust Wasm failed.");
-                }
-
-                // Authority Logic: Rust Wasm errors take precedence
-                if (wasmDiagnostics.length > 0) {
-                    const mappedDiagnostics = wasmDiagnostics.map(diag => ({
-                        status: 'fatal',
-                        code: diag.code,
-                        type: 'Wasm Parse Error',
-                        location: { line: diag.line, column: diag.column },
-                        diagnostics: {
-                            message: diag.message
-                        }
-                    }));
-                    
-                    const response: CompilerResponse = { 
-                        type: 'ERROR', 
-                        payload: { 
-                            message: "Wasm parsing failed",
-                            diagnostics: mappedDiagnostics
-                        } 
-                    };
-                    postMessage(response);
-                    return;
-                }
-
-                if (semanticErrors.length > 0) {
-                    const diagnostics = semanticErrors.map(err => err.diagnostic);
-                    
-                    const response: CompilerResponse = { 
-                        type: 'ERROR', 
-                        payload: { 
-                            message: "Semantic analysis failed",
-                            diagnostics
-                        } 
-                    };
-                    postMessage(response);
-                    return;
-                }
-
-                const linter = new Linter();
-                const lintDiagnostics = linter.lint(ast);
-
-                // 2. If valid, run the TS compiler to generate MIDI and SVG
-                let midiBytes: Uint8Array;
-                const midiGen = new MIDIGenerator();
-                midiBytes = midiGen.generate(unrolledAst);
-                
-                // Generate audio events directly from AST
-                const audioGen = new AudioEventGenerator();
-                const audioEvents = audioGen.generate(unrolledAst);
-                
-                // Use our new TS-based engraver
-                const engraver = new SVGEngraver();
-                const { svgs: svgStrings, layout: scoreLayout } = engraver.render(ast, lintDiagnostics);
-                
-                const musicxmlExporter = new MusicXMLExporter();
-                const musicxml = musicxmlExporter.export(unrolledAst);
-                
-                const compileDuration = performance.now() - compileStartTime;
-                
-                tsResponse = {
-                    midi: midiBytes,
-                    audioEvents: audioEvents,
-                    svgs: svgStrings,
-                    layout: scoreLayout,
-                    musicxml: musicxml,
-                    ast: unrolledAst,
-                    ir: JSON.stringify(unrolledAst),
-                    rawCode: processedCode,
-                    durationMs: compileDuration.toFixed(2),
-                    diagnostics: lintDiagnostics
-                };
-            } catch (err: any) {
-                tsError = err;
             }
-        }
 
-        // Dispatch Response
-        if (activeEngine === 'TYPESCRIPT' && tsError) {
+            // Sprint 6: Graph Unrolling
+            const unroller = new GraphUnroller(ast);
+            const unrolledAst = unroller.unroll();
+
+            const analyzer = new SemanticAnalyzer(unrolledAst);
+            const semanticErrors = analyzer.analyze();
+            
+            // Parity Monitoring: Log if TS is ahead of Wasm
+            if (semanticErrors.length === 0 && wasmDiagnostics.length > 0) {
+                console.warn("[Parity Notice] Simulation Track (TS) is ahead of Steel Track (Wasm)");
+            }
+
+            if (semanticErrors.length > 0) {
+                const diagnostics = semanticErrors.map(err => err.diagnostic);
+                
+                const response: CompilerResponse = { 
+                    type: 'ERROR', 
+                    payload: { 
+                        message: "Semantic analysis failed",
+                        diagnostics
+                    } 
+                };
+                postMessage(response);
+                return;
+            }
+
+            const linter = new Linter();
+            const lintDiagnostics = linter.lint(ast);
+
+            // 2. If valid, run the TS compiler to generate MIDI and SVG
+            let midiBytes: Uint8Array;
+            const midiGen = new MIDIGenerator();
+            midiBytes = midiGen.generate(unrolledAst);
+            
+            // Generate audio events directly from AST
+            const audioGen = new AudioEventGenerator();
+            const audioEvents = audioGen.generate(unrolledAst);
+            
+            // Use our new TS-based engraver
+            const engraver = new SVGEngraver();
+            const { svgs: svgStrings, layout: scoreLayout } = engraver.render(ast, lintDiagnostics);
+            
+            const musicxmlExporter = new MusicXMLExporter();
+            const musicxml = musicxmlExporter.export(unrolledAst);
+            
+            const compileDuration = performance.now() - compileStartTime;
+            
+            tsResponse = {
+                midi: midiBytes,
+                audioEvents: audioEvents,
+                svgs: svgStrings,
+                layout: scoreLayout,
+                musicxml: musicxml,
+                ast: unrolledAst,
+                ir: JSON.stringify(unrolledAst),
+                rawCode: processedCode,
+                durationMs: compileDuration.toFixed(2),
+                diagnostics: lintDiagnostics
+            };
+
+            const response: CompilerResponse = { 
+                type: 'SUCCESS', 
+                payload: tsResponse 
+            };
+            postMessage(response);
+
+        } catch (err: any) {
+            // TypeScript Track Error Handling
             let diagnostics = [];
-            if (tsError instanceof CompilerError) {
-                diagnostics.push(tsError.diagnostic);
+            if (err instanceof CompilerError) {
+                diagnostics.push(err.diagnostic);
             } else {
                 diagnostics.push({
                     status: 'fatal',
@@ -257,7 +234,7 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
                     type: 'Internal Compiler Error',
                     location: { line: 1, column: 1 },
                     diagnostics: {
-                        message: tsError.toString()
+                        message: err.toString()
                     }
                 });
             }
@@ -265,20 +242,9 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
             const response: CompilerResponse = { 
                 type: 'ERROR', 
                 payload: { 
-                    message: tsError.toString(),
+                    message: err.toString(),
                     diagnostics
                 } 
-            };
-            postMessage(response);
-            return;
-        }
-
-        const finalResponse = tsResponse;
-        
-        if (finalResponse) {
-            const response: CompilerResponse = { 
-                type: 'SUCCESS', 
-                payload: finalResponse 
             };
             postMessage(response);
         }
