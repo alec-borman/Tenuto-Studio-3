@@ -4,8 +4,8 @@
  * This script serves as the Semantic Console for the local RAG pipeline.
  * It connects to the local LanceDB vector database, embeds user queries
  * using the Gemini API, and retrieves the most relevant codebase chunks.
- * This enables the AI agent to search the codebase for context before
- * writing new code.
+ * It now supports AST-Aware hybrid querying with metadata pre-filtering,
+ * adhering to the Hydrolix Standard for engineering excellence.
  */
 
 import 'dotenv/config';
@@ -28,14 +28,21 @@ async function embedQuery(text: string): Promise<number[]> {
 }
 
 async function main() {
-  const queryText = process.argv.slice(2).join(' ');
+  // Example usage: npm run search "How does the lexer work?" "language = 'rust' AND node_type = 'impl_item'"
+  const args = process.argv.slice(2);
+  const queryText = args[0];
+  const filterString = args[1]; // Optional pre-filter
 
   if (!queryText) {
-    console.error("Usage: npm run search '<your question>'");
+    console.error("Usage: npm run search '<your question>' ['<optional filter string>']");
+    console.error("Example: npm run search 'How does the lexer work?' \"language = 'rust' AND node_type = 'impl_item'\"");
     process.exit(1);
   }
 
   console.log(`[TEDP Query] Searching for: "${queryText}"`);
+  if (filterString) {
+    console.log(`[TEDP Query] Applying pre-filter: "${filterString}"`);
+  }
 
   const db = await lancedb.connect('./.lancedb');
   
@@ -48,16 +55,24 @@ async function main() {
   const table = await db.openTable('tenuto-rag');
   const queryVector = await embedQuery(queryText);
 
-  const results = await table.search(queryVector).limit(3).execute();
-
-  console.log('\n[TEDP Query] Top 3 Results:\n');
+  // Build the query
+  let queryBuilder = table.search(queryVector);
   
-  for (const result of results) {
-    console.log(`Domain: ${result.domain}`);
-    console.log(`FilePath: ${result.filePath}`);
-    console.log(`Distance: ${result._distance}`);
-    console.log(`Content:\n${result.content}`);
-    console.log('-----------');
+  // Apply pre-filtering if provided
+  if (filterString) {
+    queryBuilder = queryBuilder.filter(filterString).prefilter(true);
+  }
+
+  const results = await queryBuilder.limit(3).execute();
+
+  console.log('\n[TEDP Query] Top Results:\n');
+  
+  if (results.length > 0) {
+    const topResult = results[0];
+    // Print the JSON payload of the top result
+    console.log(JSON.stringify(topResult, null, 2));
+  } else {
+    console.log('No results found.');
   }
 }
 

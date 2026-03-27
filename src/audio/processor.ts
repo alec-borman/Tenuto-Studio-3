@@ -316,6 +316,10 @@ class TenutoProcessor extends AudioWorkletProcessor {
         this.pendingNotes = [];
         for (let i = 0; i < this.voices.length; i++) this.voices[i].active = false;
         for (let i = 0; i < this.automations.length; i++) this.automations[i].active = false;
+        if (this.int32View) {
+          Atomics.store(this.int32View, 0, 0); // writeIdx
+          Atomics.store(this.int32View, 1, 0); // readIdx
+        }
       }
     };
   }
