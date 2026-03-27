@@ -1,6 +1,7 @@
 use wasm_bindgen::prelude::*;
 use chumsky::Parser;
 use logos::Logos;
+use serde::{Deserialize, Serialize};
 
 pub mod lexer;
 pub mod ast;
@@ -13,6 +14,14 @@ pub mod midi;
 pub mod xml;
 pub mod engrave;
 pub mod decompile;
+
+#[derive(Serialize, Deserialize)]
+pub struct WasmDiagnostic {
+    pub code: String,
+    pub message: String,
+    pub line: usize,
+    pub column: usize,
+}
 
 pub fn compile_to_timeline(source: &str) -> Result<ir::Timeline, String> {
     let tokens: Vec<lexer::Token> = lexer::Token::lexer(source).filter_map(|res| res.ok()).collect();
@@ -27,13 +36,27 @@ pub fn compile_to_timeline(source: &str) -> Result<ir::Timeline, String> {
 #[wasm_bindgen]
 pub fn compile_tenuto_to_midi(source: &str) -> Result<Vec<u8>, String> {
     let tokens: Vec<lexer::Token> = lexer::Token::lexer(source).filter_map(|res| res.ok()).collect();
-    let ast = parser::parser().parse(tokens).map_err(|e| format!("Parse Error: {:?}", e))?;
-    
-    // Print the number of measures parsed
-    web_sys::console::log_1(&format!("[TEDP] Rust Parser Success: {} measures parsed.", ast.measures.len()).into());
-    
-    // For now, return a "Success" byte array if it parses successfully
-    Ok(b"Success".to_vec())
+    match parser::parser().parse(tokens) {
+        Ok(ast) => {
+            // Print the number of measures parsed
+            web_sys::console::log_1(&format!("[TEDP] Rust Parser Success: {} measures parsed.", ast.measures.len()).into());
+            
+            // For now, return a "Success" byte array if it parses successfully
+            Ok(b"Success".to_vec())
+        }
+        Err(errors) => {
+            let mut diagnostics = Vec::new();
+            for e in errors {
+                diagnostics.push(WasmDiagnostic {
+                    code: "E1000".to_string(),
+                    message: format!("Parse error: {}", e),
+                    line: e.span().start / 80 + 1, // Rough approximation, we need a better span to line/col mapping
+                    column: e.span().start % 80 + 1,
+                });
+            }
+            Err(serde_json::to_string(&diagnostics).unwrap_or_else(|_| "[]".to_string()))
+        }
+    }
 }
 
 #[wasm_bindgen]

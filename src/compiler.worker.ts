@@ -105,6 +105,31 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
         
         let tsResponse: StandardCompilerResponse | null = null;
         let tsError: any = null;
+        let wasmDiagnostics: any[] = [];
+        let wasmSuccess = false;
+
+        // Run Wasm compilation in parallel if available
+        try {
+            // @ts-ignore
+            if (typeof self.compile_tenuto_to_midi === 'function') {
+                // @ts-ignore
+                const wasmResult = self.compile_tenuto_to_midi(processedCode);
+                wasmSuccess = true;
+            }
+        } catch (err: any) {
+            try {
+                // Try to parse the JSON diagnostics from the Wasm error string
+                wasmDiagnostics = JSON.parse(err.toString());
+            } catch (parseErr) {
+                // Fallback if it's not JSON
+                wasmDiagnostics = [{
+                    code: 'E1000',
+                    message: err.toString(),
+                    line: 1,
+                    column: 1
+                }];
+            }
+        }
 
         // The "Scaffolding" Fallback (and Parity Check)
         if (activeEngine === 'TYPESCRIPT' || DEBUG_PARITY) {
@@ -138,6 +163,36 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
                 const analyzer = new SemanticAnalyzer(unrolledAst);
                 const semanticErrors = analyzer.analyze();
                 
+                // Parity Check Logging
+                if (wasmSuccess && (semanticErrors.length > 0 || tsError)) {
+                    console.warn("[Parity Mismatch] Rust Wasm succeeded, but TypeScript failed.");
+                } else if (!wasmSuccess && semanticErrors.length === 0 && !tsError) {
+                    console.warn("[Parity Mismatch] TypeScript succeeded, but Rust Wasm failed.");
+                }
+
+                // Authority Logic: Rust Wasm errors take precedence
+                if (wasmDiagnostics.length > 0) {
+                    const mappedDiagnostics = wasmDiagnostics.map(diag => ({
+                        status: 'fatal',
+                        code: diag.code,
+                        type: 'Wasm Parse Error',
+                        location: { line: diag.line, column: diag.column },
+                        diagnostics: {
+                            message: diag.message
+                        }
+                    }));
+                    
+                    const response: CompilerResponse = { 
+                        type: 'ERROR', 
+                        payload: { 
+                            message: "Wasm parsing failed",
+                            diagnostics: mappedDiagnostics
+                        } 
+                    };
+                    postMessage(response);
+                    return;
+                }
+
                 if (semanticErrors.length > 0) {
                     const diagnostics = semanticErrors.map(err => err.diagnostic);
                     
