@@ -47,6 +47,7 @@ self.onmessage = (e) => {
     gl = e.data.canvas.getContext("webgl2", { antialias: true, alpha: false });
     if (!gl) {
       console.error("WebGL2 is not supported or canvas is invalid.");
+      self.postMessage({ type: 'RENDER_ERROR' });
       return;
     }
     initWebGL();

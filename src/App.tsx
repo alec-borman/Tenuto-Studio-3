@@ -33,6 +33,7 @@ export default function App() {
   const [status, setStatus] = useState('Booting compiler...');
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [renderError, setRenderError] = useState(false);
   
   // Sprint 5 State
   const [isLinkEnabled, setIsLinkEnabled] = useState(false);
@@ -210,6 +211,12 @@ export default function App() {
           width: canvasContainerRef.current.clientWidth,
           height: canvasContainerRef.current.clientHeight
         }, [offscreen]);
+
+        renderWorkerRef.current.onmessage = (e) => {
+          if (e.data.type === 'RENDER_ERROR') {
+            setRenderError(true);
+          }
+        };
       } catch (err) {
         console.error("Failed to transfer control to offscreen canvas:", err);
       }
@@ -296,10 +303,18 @@ export default function App() {
     }
   }, [diagnostics]);
 
+  const debounceTimerRef = useRef<number | null>(null);
   const handleEditorChange = (value: string | undefined) => {
     if (value) {
       setCode(value);
-      compileCode(value, isLinkEnabled ? linkState?.tempo : undefined);
+      
+      if (debounceTimerRef.current) {
+        window.clearTimeout(debounceTimerRef.current);
+      }
+      
+      debounceTimerRef.current = window.setTimeout(() => {
+        compileCode(value, isLinkEnabled ? linkState?.tempo : undefined);
+      }, 300);
     }
   };
 
@@ -377,6 +392,8 @@ export default function App() {
   };
 
   const handlePlay = async () => {
+    if (isPlaying) return; // Simple lock to prevent doubling
+    
     // Tone.js requires a user interaction to start the AudioContext
     if (Tone.context.state !== 'running') {
       await Tone.start();
@@ -676,6 +693,22 @@ export default function App() {
               {/* Dedicated container for the native canvas. React will not mutate this. */}
               <div ref={canvasContainerRef} className="absolute inset-0 z-0"></div>
               
+              {/* Task 4: WebGL2 Error Overlay */}
+              {renderError && (
+                <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm z-30 p-8 text-center">
+                  <div className="max-w-md">
+                    <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4 border border-red-500/50">
+                      <Square size={24} className="text-red-500" />
+                    </div>
+                    <h3 className="text-lg font-bold text-zinc-100 mb-2">WebGL2 Required</h3>
+                    <p className="text-sm text-zinc-400">
+                      Tenuto Studio's high-performance visualizer requires WebGL2. 
+                      Please ensure your browser and hardware support WebGL2, or try updating your graphics drivers.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Playhead overlay rendered on top */}
               {isPlaying && (
                 <div ref={playheadRef} className="absolute top-0 bottom-0 w-px bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] z-10" style={{ left: '15%' }}>

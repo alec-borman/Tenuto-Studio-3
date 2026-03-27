@@ -29,10 +29,11 @@ export class SVGEngraver {
     const svgs: string[] = [];
     
     for (const page of layout.pages) {
-      let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}" viewBox="0 0 ${page.width} ${page.height}">`;
+      const svgParts: string[] = [];
+      svgParts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}" viewBox="0 0 ${page.width} ${page.height}">`);
       
       // Add styles
-      svg += `<style>
+      svgParts.push(`<style>
         .staff-line { stroke: #000; stroke-width: 1px; }
         .barline { stroke: #000; stroke-width: 1.5px; }
         .notehead { fill: #000; }
@@ -40,22 +41,23 @@ export class SVGEngraver {
         .ledger { stroke: #000; stroke-width: 1.5px; }
         .clef { font-family: serif; font-size: 40px; }
         .time-sig { font-family: serif; font-size: 24px; font-weight: bold; }
-      </style>`;
+      </style>`);
 
       // Render systems
       for (const system of page.systems) {
-        svg += this.renderSystem(system, ast, diagnostics);
+        svgParts.push(this.renderSystem(system, ast, diagnostics));
       }
 
-      svg += `</svg>`;
-      svgs.push(svg);
+      svgParts.push(`</svg>`);
+      svgs.push(svgParts.join(''));
     }
     
     return svgs;
   }
 
   private renderSystem(system: SystemLayout, ast: AST, diagnostics: any[]): string {
-    let svg = `<g transform="translate(0, ${system.y})">`;
+    const svgParts: string[] = [];
+    svgParts.push(`<g transform="translate(0, ${system.y})">`);
     
     // Determine parts to render
     const parts = ast.defs.map(d => d.id);
@@ -79,9 +81,9 @@ export class SVGEngraver {
         const endY = Math.max(...indices) * staffSpacing + staffHeight;
         
         // Draw a thick bracket
-        svg += `<path d="M -5 ${startY} L -15 ${startY} L -15 ${endY} L -5 ${endY}" fill="none" stroke="#000" stroke-width="2" />`;
+        svgParts.push(`<path d="M -5 ${startY} L -15 ${startY} L -15 ${endY} L -5 ${endY}" fill="none" stroke="#000" stroke-width="2" />`);
         // Draw group name
-        svg += `<text x="-25" y="${(startY + endY) / 2}" font-family="sans-serif" font-size="12px" text-anchor="middle" dominant-baseline="middle" transform="rotate(-90 -25 ${(startY + endY) / 2})">${groupName}</text>`;
+        svgParts.push(`<text x="-25" y="${(startY + endY) / 2}" font-family="sans-serif" font-size="12px" text-anchor="middle" dominant-baseline="middle" transform="rotate(-90 -25 ${(startY + endY) / 2})">${groupName}</text>`);
       }
     }
 
@@ -96,14 +98,14 @@ export class SVGEngraver {
       // 5 lines (Added crispEdges for 4k sharpness)
       for (let i = 0; i < 5; i++) {
         const y = staffY + i * 10;
-        svg += `<line x1="0" y1="${y}" x2="${totalSystemWidth}" y2="${y}" class="staff-line" shape-rendering="crispEdges" />`;
+        svgParts.push(`<line x1="0" y1="${y}" x2="${totalSystemWidth}" y2="${y}" class="staff-line" shape-rendering="crispEdges" />`);
       }
       
       // Clef Polish
       const isTreble = partIndex === 0;
       const clefChar = isTreble ? "𝄞" : "𝄢";
       const clefY = isTreble ? staffY + 34 : staffY + 28;
-      svg += `<text x="15" y="${clefY}" class="clef" font-size="46px">${clefChar}</text>`;
+      svgParts.push(`<text x="15" y="${clefY}" class="clef" font-size="46px">${clefChar}</text>`);
       
       // Barlines at start of system
       let startBarline = `<line x1="0" y1="${staffY}" x2="0" y2="${staffY + 40}" class="barline" shape-rendering="crispEdges" />`;
@@ -115,7 +117,7 @@ export class SVGEngraver {
           <circle cx="12" cy="${staffY + 25}" r="2" fill="#000" />
         `;
       }
-      svg += startBarline;
+      svgParts.push(startBarline);
     });
 
     const topSkyline = new Skyline(system.measures.reduce((sum, m) => sum + m.width, 0) + 100, 10, true);
@@ -124,10 +126,10 @@ export class SVGEngraver {
     // Render measures
     let currentX = SYSTEM_START_X; // Start rendering notes AFTER the clef margin
     for (const measure of system.measures) {
-      svg += `<g transform="translate(${currentX}, 0)">`;
+      svgParts.push(`<g transform="translate(${currentX}, 0)">`);
       
       if (measure.measure.number !== 1) {
-        svg += `<text x="0" y="-15" font-family="serif" font-size="12px" font-style="italic" fill="#666">${measure.measure.number}</text>`;
+        svgParts.push(`<text x="0" y="-15" font-family="serif" font-size="12px" font-style="italic" fill="#666">${measure.measure.number}</text>`);
       }
       
       const accidentalState: Record<string, Record<string, string>> = {};
@@ -261,13 +263,13 @@ export class SVGEngraver {
           }
           
           // Draw primary beam with proper musical thickness and square caps to flush the edges
-          svg += `<line x1="${actualStartX}" y1="${startY}" x2="${actualEndX}" y2="${endY}" stroke="#1a1a1a" stroke-width="4.5" stroke-linecap="square" />`;
+          svgParts.push(`<line x1="${actualStartX}" y1="${startY}" x2="${actualEndX}" y2="${endY}" stroke="#1a1a1a" stroke-width="4.5" stroke-linecap="square" />`);
         }
         
         for (let i = 0; i < partData.positionedEvents.length; i++) {
           const pe = partData.positionedEvents[i];
           const nextPe = partData.positionedEvents[i + 1];
-          svg += this.renderEvent(pe, nextPe, staffY, topSkyline, bottomSkyline, parts, staffSpacing, currentX, partAccidentalState, beamedEvents, beamGroupLines, diagnostics);
+          svgParts.push(this.renderEvent(pe, nextPe, staffY, topSkyline, bottomSkyline, parts, staffSpacing, currentX, partAccidentalState, beamedEvents, beamGroupLines, diagnostics));
         }
       }
       
@@ -284,25 +286,25 @@ export class SVGEngraver {
             <circle cx="${measure.width - 8}" cy="${staffY + 25}" r="2" fill="#000" />
           `;
         }
-        svg += endBarline;
+        svgParts.push(endBarline);
       });
       
       // Voltas
       if (measure.measure.markers?.includes('[1.') || measure.measure.markers?.includes('[2.')) {
         const voltaText = measure.measure.markers.includes('[1.') ? '1.' : '2.';
         const startY = -15;
-        svg += `
+        svgParts.push(`
           <path d="M 0 ${startY + 10} L 0 ${startY} L ${measure.width} ${startY}" fill="none" stroke="#000" stroke-width="1" />
           <text x="5" y="${startY + 12}" font-family="sans-serif" font-size="12px" font-weight="bold">${voltaText}</text>
-        `;
+        `);
       }
       
-      svg += `</g>`;
+      svgParts.push(`</g>`);
       currentX += measure.width;
     }
 
-    svg += `</g>`;
-    return svg;
+    svgParts.push(`</g>`);
+    return svgParts.join('');
   }
 
   private getPitchY(pitch: string, octave: number, staffY: number): number {

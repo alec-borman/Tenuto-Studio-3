@@ -56,6 +56,18 @@ async function bootCompiler() {
     try {
         const startTime = performance.now();
         
+        // Task 2: Wasm Worker Connectivity (Production Fix #1)
+        try {
+            // @ts-ignore
+            const wasmPath = '/pkg/tenutoc.js';
+            const wasmModule = await import(/* @vite-ignore */ wasmPath);
+            // @ts-ignore
+            await wasmModule.default(); 
+            console.log("[TEDP] Wasm Steel Track Connected.");
+        } catch (e) {
+            console.warn("[TEDP] Wasm Steel Track failed to connect. Falling back to TS Simulation.", e);
+        }
+
         activeEngine = 'TYPESCRIPT';
 
         const bootTime = performance.now() - startTime;

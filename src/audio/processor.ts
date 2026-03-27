@@ -270,8 +270,6 @@ class TenutoProcessor extends AudioWorkletProcessor {
 
   private busBuffer: Float32Array[] = [];
   private busWriteIndex: number = 0;
-
-  private sharedBuffer: SharedArrayBuffer | null = null;
   private int32View: Int32Array | null = null;
   private floatView: Float32Array | null = null;
 
@@ -291,10 +289,8 @@ class TenutoProcessor extends AudioWorkletProcessor {
       this.automations.push(new Automation());
     }
 
-    this.busBuffer = [
-      new Float32Array(sampleRate * 10),
-      new Float32Array(sampleRate * 10)
-    ];
+    // Lazy allocation: busBuffer is now created only if src="bus://" is detected
+    // this.busBuffer = [ ... ]
 
     this.port.onmessage = (e) => {
       if (e.data.type === 'INIT') {
@@ -316,6 +312,13 @@ class TenutoProcessor extends AudioWorkletProcessor {
         this.pendingNotes = [];
         for (let i = 0; i < this.voices.length; i++) this.voices[i].active = false;
         for (let i = 0; i < this.automations.length; i++) this.automations[i].active = false;
+        
+        // Wipe bus buffer to prevent stale audio on restart
+        if (this.busBuffer.length > 0) {
+          this.busBuffer[0].fill(0);
+          this.busBuffer[1].fill(0);
+        }
+
         if (this.int32View) {
           Atomics.store(this.int32View, 0, 0); // writeIdx
           Atomics.store(this.int32View, 1, 0); // readIdx
@@ -367,6 +370,14 @@ class TenutoProcessor extends AudioWorkletProcessor {
       if (currentCtxTime >= msg.startTime) {
         const voice = this.getInactiveVoice();
         if (voice) {
+          // Lazy allocation of busBuffer if needed
+          if (msg.bufferId === -1 && this.busBuffer.length === 0) {
+            this.busBuffer = [
+              new Float32Array(sampleRate * 10),
+              new Float32Array(sampleRate * 10)
+            ];
+          }
+
           voice.init(
             sampleRate, msg.duration, msg.instrument_id, msg.note, msg.velocity, msg.style,
             msg.a, msg.d, msg.s, msg.r, 

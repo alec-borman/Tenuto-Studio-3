@@ -196,7 +196,8 @@ export class AudioEventGenerator {
       this.bpm = parseInt(ast.meta.tempo, 10);
     }
     
-    const secondsPerQuarter = 60 / this.bpm;
+    // Default time signature
+    let defaultTime = ast.meta.time || "4/4";
 
     for (const def of ast.defs) {
       let currentTime = 0;
@@ -209,6 +210,15 @@ export class AudioEventGenerator {
       }
 
       for (const measure of ast.measures) {
+        const timeSig = measure.meta?.time || defaultTime;
+        const [num, den] = timeSig.split('/').map(n => parseInt(n, 10));
+        
+        // Seconds per beat based on the denominator of the time signature
+        // BPM is traditionally beats per minute where the beat is the denominator
+        const secondsPerBeat = 60 / this.bpm;
+        const secondsPerQuarter = secondsPerBeat * (den / 4);
+        const measureDurationSeconds = num * secondsPerBeat;
+
         const part = measure.parts.find(p => p.id === def.id);
         if (part) {
           const voice = part.voices[0];
@@ -302,17 +312,17 @@ export class AudioEventGenerator {
                 }
               } else if (event.type === 'tuplet') {
                 const ratioParts = event.ratio.split('/');
-                let num = 3;
-                let den = 2;
+                let numT = 3;
+                let denT = 2;
                 if (ratioParts.length === 2) {
-                  num = parseInt(ratioParts[0], 10);
-                  den = parseInt(ratioParts[1], 10);
+                  numT = parseInt(ratioParts[0], 10);
+                  denT = parseInt(ratioParts[1], 10);
                 } else if (ratioParts.length === 1) {
-                  num = parseInt(ratioParts[0], 10);
-                  den = Math.pow(2, Math.floor(Math.log2(num)));
-                  if (num === den) den = num / 2;
+                  numT = parseInt(ratioParts[0], 10);
+                  denT = Math.pow(2, Math.floor(Math.log2(numT)));
+                  if (numT === denT) denT = numT / 2;
                 }
-                const multiplier = den / num;
+                const multiplier = denT / numT;
                 
                 let tupletTime = voiceTime;
                 for (const e of event.events) {
@@ -348,11 +358,7 @@ export class AudioEventGenerator {
           }
         }
         
-        // Advance currentTime by measure duration (simplified: assuming 4/4 for now)
-        // Actually, we should advance by the max voice time in the measure to be safe,
-        // but for now let's just use 4 quarters if we don't know.
-        // Wait, voiceTime is the exact time. Let's just use voiceTime.
-        currentTime += 4 * secondsPerQuarter; // Assuming 4/4
+        currentTime += measureDurationSeconds;
       }
     }
     

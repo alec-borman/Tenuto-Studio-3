@@ -82,21 +82,22 @@ export class GraphUnroller {
     const newParts: Part[] = measure.parts.map(part => {
       const newVoices: Voice[] = part.voices.map(voice => {
         // Deep clone events to avoid reference issues if we mutate them later
+        // Using structuredClone for better performance and robustness
         return {
           id: voice.id,
-          events: JSON.parse(JSON.stringify(voice.events))
+          events: typeof structuredClone === 'function' ? structuredClone(voice.events) : JSON.parse(JSON.stringify(voice.events))
         };
       });
       return {
         id: part.id,
-        meta: part.meta ? JSON.parse(JSON.stringify(part.meta)) : undefined,
+        meta: part.meta ? (typeof structuredClone === 'function' ? structuredClone(part.meta) : JSON.parse(JSON.stringify(part.meta))) : undefined,
         voices: newVoices
       };
     });
 
     return {
       number: newNumber,
-      meta: measure.meta ? JSON.parse(JSON.stringify(measure.meta)) : undefined,
+      meta: measure.meta ? (typeof structuredClone === 'function' ? structuredClone(measure.meta) : JSON.parse(JSON.stringify(measure.meta))) : undefined,
       parts: newParts
       // markers are intentionally stripped
     };

@@ -133,20 +133,11 @@ export class AudioEngine {
       await this.context.resume();
     }
 
-    // 2. Dual-Environment Check (Cloud Preview vs Local Native)
-    const isCrossOriginIsolated = typeof SharedArrayBuffer !== 'undefined' && window.crossOriginIsolated;
-
     try {
-      const workletUrl = new URL('./processor.ts', import.meta.url).href;
-      await this.context.audioWorklet.addModule(workletUrl, { type: 'module' } as any);
-      
-      const numOutputs = Math.max(2, instruments.length);
-      this.workletNode = new AudioWorkletNode(this.context, 'tenuto-processor', {
-        numberOfInputs: 1,
-        numberOfOutputs: numOutputs,
-        outputChannelCount: Array(numOutputs).fill(2)
-      });
+      // 2. Dual-Environment Check (Cloud Preview vs Local Native)
+      const isCrossOriginIsolated = typeof SharedArrayBuffer !== 'undefined' && window.crossOriginIsolated;
 
+      // Task 3: Move allocation ABOVE constructor (Production Fix #2)
       // Only allocate high-performance buffer if the environment allows it
       if (isCrossOriginIsolated) {
         const MAX_EVENTS = 1024;
@@ -158,6 +149,19 @@ export class AudioEngine {
       } else {
         console.warn("[TEDP] SharedArrayBuffer blocked. Falling back to postMessage transport.");
       }
+
+      const workletUrl = new URL('./processor.ts', import.meta.url).href;
+      await this.context.audioWorklet.addModule(workletUrl, { type: 'module' } as any);
+      
+      const numOutputs = Math.max(2, instruments.length);
+      this.workletNode = new AudioWorkletNode(this.context, 'tenuto-processor', {
+        numberOfInputs: 1,
+        numberOfOutputs: numOutputs,
+        outputChannelCount: Array(numOutputs).fill(2),
+        processorOptions: {
+          sharedBuffer: this.sharedBuffer
+        }
+      });
 
       // Send INIT message (sharedBuffer will be null if blocked)
       this.workletNode.port.postMessage({
