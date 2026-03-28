@@ -264,3 +264,15 @@ npm run dev -- --force
 
 *   **API Documentation:** Generated via TypeDoc. See the `docs/api` directory (generated during build).
 *   **Manual Documentation:** Comprehensive guides and language specifications are available in the `/docs` folder.
+*   
+## 👤 Creator & Maintainer
+
+Tenuto Studio 3 was created by **Alec Borman** – a systems architect, Rust/Wasm engineer, and author of *The Resonance of Tuesday*. It is the reference implementation of the Tenuto music notation language, designed to bring deterministic, archival‑first principles to music composition.
+
+Building on the same philosophy of sovereign, declarative creative infrastructure, Alec has extended this vision to visual art with **Gesso Studio 1.0** – a deterministic DSL for visual intent that unifies material physics, compositional logic, and on‑chain provenance.
+
+- **LinkedIn:** [Alec Borman](https://www.linkedin.com/in/alec-borman-9680b3160/)
+- **GitHub:** [@alec-borman](https://github.com/alec-borman)
+- **Gesso Studio:** [gesso.dev](https://gesso.dev) *(coming soon)*
+
+For inquiries, collaborations, or to discuss the future of deterministic creative tools, reach out directly.
