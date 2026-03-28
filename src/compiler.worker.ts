@@ -210,8 +210,17 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
                 const audioEvents = audioGen.generate(wasmAst);
                 
                 // Use our new TS-based engraver
-                const engraver = new SVGEngraver();
-                const { svgs: svgStrings, layout: scoreLayout } = engraver.render(wasmAst, wasmDiagnostics);
+                // const engraver = new SVGEngraver();
+                // const { svgs: svgStrings, layout: scoreLayout } = engraver.render(wasmAst, wasmDiagnostics);
+                
+                let svgStrings: string[] = [];
+                try {
+                    const wasmSvgJson = wasmCore.compile_tenuto_to_svg(processedCode);
+                    svgStrings = JSON.parse(wasmSvgJson);
+                } catch (e) {
+                    console.error("Wasm SVG generation failed:", e);
+                }
+                const scoreLayout: any = { pages: [], width: 800, height: 2970 };
                 
                 const musicxmlExporter = new MusicXMLExporter();
                 const musicxml = musicxmlExporter.export(wasmAst);

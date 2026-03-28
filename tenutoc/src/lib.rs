@@ -79,10 +79,7 @@ pub fn compile_tenuto_to_svg(source: &str) -> Result<String, String> {
     let mut preprocessor = preprocessor::Preprocessor::new();
     let expanded_ast = preprocessor.expand(ast).map_err(|e| e.to_string())?;
     
-    let timeline = ir::compile(expanded_ast, false).map_err(|e| e.to_string())?;
-    let visual_score = rebar::VisualScore::build(&timeline);
-    
-    engrave::export_svg(&visual_score).map_err(|e| e.to_string())
+    engrave::export_svg(&expanded_ast).map_err(|e| e.to_string())
 }
 
 #[wasm_bindgen]
