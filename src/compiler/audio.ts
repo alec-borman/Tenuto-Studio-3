@@ -239,25 +239,34 @@ export class AudioEventGenerator {
                   
                   const { pan, orbit, fx } = this.processModifiers(event.modifiers, voiceTime, durationInSeconds, def.patch, events);
 
-                  let rollCount = 1;
-                  if (event.modifiers) {
-                    const rollMod = event.modifiers.find(m => m.startsWith('roll('));
-                    if (rollMod) {
-                      const match = rollMod.match(/roll\((\d+)\)/);
-                      if (match) rollCount = parseInt(match[1], 10);
-                    }
-                  }
+                  events.push({
+                    time: voiceTime,
+                    note: midiNote,
+                    duration: durationInSeconds,
+                    velocity,
+                    instrument: def.patch,
+                    style: def.style,
+                    env: resolvedEnv,
+                    src: def.src,
+                    push: event.push,
+                    pull: event.pull,
+                    modifiers: event.modifiers,
+                    pan,
+                    orbit,
+                    fx
+                  });
+                }
+              } else if (event.type === 'chord') {
+                for (const note of event.notes) {
+                  if (note.pitch !== 'r') {
+                    const midiNote = this.resolvePitch(note.pitch, note.octave, note.accidental, def);
+                    const { pan, orbit, fx } = this.processModifiers(event.modifiers, voiceTime, durationInSeconds, def.patch, events);
 
-                  const subDuration = durationInSeconds / rollCount;
-
-                  for (let r = 0; r < rollCount; r++) {
-                    const subTime = voiceTime + (r * subDuration);
-                    
                     events.push({
-                      time: subTime,
+                      time: voiceTime,
                       note: midiNote,
-                      duration: subDuration,
-                      velocity,
+                      duration: durationInSeconds,
+                      velocity: 80,
                       instrument: def.patch,
                       style: def.style,
                       env: resolvedEnv,
@@ -269,45 +278,6 @@ export class AudioEventGenerator {
                       orbit,
                       fx
                     });
-                  }
-                }
-              } else if (event.type === 'chord') {
-                for (const note of event.notes) {
-                  if (note.pitch !== 'r') {
-                    const midiNote = this.resolvePitch(note.pitch, note.octave, note.accidental, def);
-                    const { pan, orbit, fx } = this.processModifiers(event.modifiers, voiceTime, durationInSeconds, def.patch, events);
-
-                    let rollCount = 1;
-                    if (event.modifiers) {
-                      const rollMod = event.modifiers.find(m => m.startsWith('roll('));
-                      if (rollMod) {
-                        const match = rollMod.match(/roll\((\d+)\)/);
-                        if (match) rollCount = parseInt(match[1], 10);
-                      }
-                    }
-
-                    const subDuration = durationInSeconds / rollCount;
-
-                    for (let r = 0; r < rollCount; r++) {
-                      const subTime = voiceTime + (r * subDuration);
-                      
-                      events.push({
-                        time: subTime,
-                        note: midiNote,
-                        duration: subDuration,
-                        velocity: 80,
-                        instrument: def.patch,
-                        style: def.style,
-                        env: resolvedEnv,
-                        src: def.src,
-                        push: event.push,
-                        pull: event.pull,
-                        modifiers: event.modifiers,
-                        pan,
-                        orbit,
-                        fx
-                      });
-                    }
                   }
                 }
               } else if (event.type === 'tuplet') {

@@ -78,14 +78,62 @@ export class GraphUnroller {
     };
   }
 
+  private expandRolls(events: Event[]): Event[] {
+    const newEvents: Event[] = [];
+    for (const event of events) {
+      if (event.type === 'note' || event.type === 'chord') {
+        let rollCount = 1;
+        if (event.modifiers) {
+          const rollIndex = event.modifiers.findIndex(m => m.startsWith('roll('));
+          if (rollIndex !== -1) {
+            const rollMod = event.modifiers.splice(rollIndex, 1)[0];
+            const match = rollMod.match(/roll\((\d+)\)/);
+            if (match) {
+              rollCount = parseInt(match[1], 10);
+            }
+            if (event.modifiers.length === 0) {
+              delete event.modifiers;
+            }
+          }
+        }
+        if (rollCount > 1) {
+          let baseDur = event.duration;
+          let dots = 0;
+          while (baseDur.endsWith('.')) {
+            dots++;
+            baseDur = baseDur.slice(0, -1);
+          }
+          const num = parseInt(baseDur, 10);
+          if (!isNaN(num)) {
+            const newNum = num * rollCount;
+            event.duration = `${newNum}${'.'.repeat(dots)}`;
+          }
+          for (let i = 0; i < rollCount; i++) {
+            newEvents.push(typeof structuredClone === 'function' ? structuredClone(event) : JSON.parse(JSON.stringify(event)));
+          }
+        } else {
+          newEvents.push(event);
+        }
+      } else if (event.type === 'tuplet') {
+        event.events = this.expandRolls(event.events);
+        newEvents.push(event);
+      } else {
+        newEvents.push(event);
+      }
+    }
+    return newEvents;
+  }
+
   private cloneAndStrip(measure: Measure, newNumber: number): Measure {
     const newParts: Part[] = measure.parts.map(part => {
       const newVoices: Voice[] = part.voices.map(voice => {
         // Deep clone events to avoid reference issues if we mutate them later
         // Using structuredClone for better performance and robustness
+        let events = typeof structuredClone === 'function' ? structuredClone(voice.events) : JSON.parse(JSON.stringify(voice.events));
+        events = this.expandRolls(events);
         return {
           id: voice.id,
-          events: typeof structuredClone === 'function' ? structuredClone(voice.events) : JSON.parse(JSON.stringify(voice.events))
+          events
         };
       });
       return {

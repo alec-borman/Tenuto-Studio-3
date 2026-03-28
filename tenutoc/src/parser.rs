@@ -52,14 +52,14 @@ fn duration_with_mods() -> impl Parser<Token, (String, Vec<Modifier>), Error = S
             .repeated())
 }
 
-fn note_parser() -> impl Parser<Token, Event, Error = Simple<Token>> {
+fn note_parser() -> impl Parser<Token, Vec<Event>, Error = Simple<Token>> {
     let pitch_octave = filter_map(|span, tok| match tok {
         Token::Identifier(i) => {
             // Basic regex-like logic for pitch + accidental + octave
             // e.g., c#4, eb5, c4, r
             let mut pitch = String::new();
             let mut accidental = None;
-            let mut octave = 4; // default
+            let mut octave = None; // default to None
             
             if i == "r" {
                 pitch = "r".to_string();
@@ -79,7 +79,7 @@ fn note_parser() -> impl Parser<Token, Event, Error = Simple<Token>> {
                 if idx < chars.len() {
                     let oct_str: String = chars[idx..].iter().collect();
                     if let Ok(o) = oct_str.parse::<i32>() {
-                        octave = o;
+                        octave = Some(o);
                     }
                 }
             }
@@ -88,9 +88,23 @@ fn note_parser() -> impl Parser<Token, Event, Error = Simple<Token>> {
         _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
     });
 
+    let euclidean = just(Token::Symbol("(".to_string()))
+        .ignore_then(filter_map(|span, tok| match tok {
+            Token::Number(n) => n.parse::<u32>().map_err(|_| Simple::custom(span, "Invalid hits")),
+            _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+        }))
+        .then_ignore(just(Token::Symbol(",".to_string())))
+        .then(filter_map(|span, tok| match tok {
+            Token::Number(n) => n.parse::<u32>().map_err(|_| Simple::custom(span, "Invalid steps")),
+            _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+        }))
+        .then_ignore(just(Token::Symbol(")".to_string())))
+        .or_not();
+
     pitch_octave
+        .then(euclidean)
         .then(just(Token::Symbol(":".to_string())).ignore_then(duration_with_mods()).or_not())
-        .map_with_span(|((pitch, accidental, octave), dur_mods), span| {
+        .map_with_span(|(((pitch, accidental, octave), eucl), dur_mods), span| {
             let (duration, mods) = dur_mods.unwrap_or(("4".to_string(), vec![]));
             
             let mut articulation = None;
@@ -123,20 +137,45 @@ fn note_parser() -> impl Parser<Token, Event, Error = Simple<Token>> {
                 }
             }
             
-            Event::Note(Note {
-                pitch,
-                octave,
-                accidental,
-                duration,
-                articulation,
-                modifiers: if modifiers.is_empty() { None } else { Some(modifiers) },
-                cross,
-                lyric: None,
-                push,
-                pull,
-                line: span.start, // Approximation for now
-                column: span.end,
-            })
+            let mods_opt = if modifiers.is_empty() { None } else { Some(modifiers) };
+            let (hits, steps) = eucl.unwrap_or((1, 1));
+            let mut events = Vec::new();
+            
+            for i in 0..steps {
+                let is_hit = (i * hits) % steps < hits;
+                if is_hit {
+                    events.push(Event::Note(Note {
+                        pitch: pitch.clone(),
+                        octave,
+                        accidental: accidental.clone(),
+                        duration: duration.clone(),
+                        articulation: articulation.clone(),
+                        modifiers: mods_opt.clone(),
+                        cross: cross.clone(),
+                        lyric: None,
+                        push,
+                        pull,
+                        line: span.start, // Approximation for now
+                        column: span.end,
+                    }));
+                } else {
+                    events.push(Event::Note(Note {
+                        pitch: "r".to_string(),
+                        octave,
+                        accidental: None,
+                        duration: duration.clone(),
+                        articulation: None,
+                        modifiers: None,
+                        cross: None,
+                        lyric: None,
+                        push: None,
+                        pull: None,
+                        line: span.start,
+                        column: span.end,
+                    }));
+                }
+            }
+            events
         })
 }
 fn chord_parser() -> impl Parser<Token, Event, Error = Simple<Token>> {
@@ -145,7 +184,7 @@ fn chord_parser() -> impl Parser<Token, Event, Error = Simple<Token>> {
             Token::Identifier(i) => {
                 let mut pitch = String::new();
                 let mut accidental = None;
-                let mut octave = 4;
+                let mut octave = None;
                 
                 let chars: Vec<char> = i.chars().collect();
                 if chars.is_empty() {
@@ -162,7 +201,7 @@ fn chord_parser() -> impl Parser<Token, Event, Error = Simple<Token>> {
                 if idx < chars.len() {
                     let oct_str: String = chars[idx..].iter().collect();
                     if let Ok(o) = oct_str.parse::<i32>() {
-                        octave = o;
+                        octave = Some(o);
                     }
                 }
                 
@@ -233,8 +272,8 @@ fn chord_parser() -> impl Parser<Token, Event, Error = Simple<Token>> {
         })
 }
 
-fn event_parser() -> impl Parser<Token, Event, Error = Simple<Token>> {
-    chord_parser().or(note_parser())
+fn event_parser() -> impl Parser<Token, Vec<Event>, Error = Simple<Token>> {
+    chord_parser().map(|c| vec![c]).or(note_parser())
 }
 
 fn voice_parser() -> impl Parser<Token, Voice, Error = Simple<Token>> {
@@ -244,7 +283,7 @@ fn voice_parser() -> impl Parser<Token, Voice, Error = Simple<Token>> {
     })
     .then_ignore(just(Token::Symbol(":".to_string())));
 
-    let events = event_parser().repeated();
+    let events = event_parser().repeated().map(|vecs| vecs.into_iter().flatten().collect());
 
     voice_id.or_not().then(events).map(|(id, events)| {
         Voice {

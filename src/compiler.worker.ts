@@ -129,16 +129,33 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
                 wasmSuccess = true;
             }
         } catch (err: any) {
+            // FFI String Safety: Ensure we have a valid string from the Wasm boundary
+            const errString = typeof err === 'string' ? err : (err?.message || err?.toString() || 'Unknown Wasm Error');
+            
             try {
                 // The JSON Guard: Attempt to parse structured diagnostics
-                wasmDiagnostics = JSON.parse(err.toString());
+                const parsedDiagnostics = JSON.parse(errString);
+                
+                // Diagnostic Mapping: Normalize the Rust diagnostics to match TS format
+                if (Array.isArray(parsedDiagnostics)) {
+                    wasmDiagnostics = parsedDiagnostics.map(d => ({
+                        code: d.code || 'E1000',
+                        message: d.message || 'Unknown error',
+                        line: d.line || 1,
+                        column: d.column || 1,
+                        source: 'rust'
+                    }));
+                } else {
+                    throw new Error("Invalid diagnostic format");
+                }
             } catch (parseErr) {
                 // Legacy Fallback: Treat as raw string error
                 wasmDiagnostics = [{
                     code: 'E1000',
-                    message: err.toString(),
+                    message: errString,
                     line: 1,
-                    column: 1
+                    column: 1,
+                    source: 'rust'
                 }];
             }
         }

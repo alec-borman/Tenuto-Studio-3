@@ -60,6 +60,18 @@ pub fn compile_tenuto_to_midi(source: &str) -> Result<Vec<u8>, String> {
 }
 
 #[wasm_bindgen]
+pub fn compile_tenuto_to_ir_json(source: &str) -> Result<String, String> {
+    let tokens: Vec<lexer::Token> = lexer::Token::lexer(source).filter_map(|res| res.ok()).collect();
+    let ast = parser::parser().parse(tokens).map_err(|e| format!("{:?}", e))?;
+    
+    let mut preprocessor = preprocessor::Preprocessor::new();
+    let expanded_ast = preprocessor.expand(ast).map_err(|e| e.to_string())?;
+    
+    // For now, return the expanded AST as JSON to compare with TS AST
+    serde_json::to_string(&expanded_ast).map_err(|e| e.to_string())
+}
+
+#[wasm_bindgen]
 pub fn compile_tenuto_to_svg(source: &str) -> Result<String, String> {
     let tokens: Vec<lexer::Token> = lexer::Token::lexer(source).filter_map(|res| res.ok()).collect();
     let ast = parser::parser().parse(tokens).map_err(|e| format!("{:?}", e))?;

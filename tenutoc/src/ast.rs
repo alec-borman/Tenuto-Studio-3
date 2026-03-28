@@ -67,7 +67,7 @@ pub enum Event {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Note {
     pub pitch: String,
-    pub octave: i32,
+    pub octave: Option<i32>,
     pub accidental: Option<String>,
     pub duration: String,
     pub articulation: Option<String>,

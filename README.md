@@ -103,7 +103,11 @@ You can easily embed interactive Tenuto scores on any webpage using the framewor
 
 ## 💻 Language in Action
 
-Tenuto 3.0 introduces stateful cursor logic, dot-chained attributes, and powerful DSP effects routing for precise control over musical articulation and expression. It also supports Euclidean rhythms (`hits`, `steps`) and the `.roll()` sub-tick engine.
+Tenuto 3.0 natively supports Euclidean rhythms via the `(k,n)` syntax appended to any pitch identifier.
+Example: `c4(3,8):16` distributes 3 hits as evenly as possible across 8 sixteenth-note steps.
+Under the hood, the compiler utilizes Bresenham's line algorithm (`(step * k) % n < k`) to deterministically expand this into a precise sequence of `Note` and `Rest` events in the AST.
+
+Tenuto 3.0 also introduces stateful cursor logic, dot-chained attributes, and powerful DSP effects routing for precise control over musical articulation and expression. It also supports the `.roll()` sub-tick engine.
 
 ```tenuto
 tenuto "3.0" {
@@ -122,6 +126,10 @@ tenuto "3.0" {
 ```
 
 ### Available Effects
+The language supports infinite, strict LL(1) dot-chaining for DSP modulation and articulation.
+Syntax: `c4:4.stacc.roll(4).fx("bitcrusher", @{bits: 4}).pan([-1.0, 1.0], "exponential")`
+Sub-tick expansions like `.roll(n)` are calculated at the AST level using rational math, ensuring sample-accurate precision without floating-point timeline drift.
+
 The AudioEngine now supports professional-grade DSP effects powered by Tone.js:
 - **reverb**: `fx("reverb", @{decay: 4, dryWet: 0.5})`
 - **delay**: `fx("delay", @{time: 250, feedback: 0.3, dryWet: 0.5})`
@@ -264,15 +272,3 @@ npm run dev -- --force
 
 *   **API Documentation:** Generated via TypeDoc. See the `docs/api` directory (generated during build).
 *   **Manual Documentation:** Comprehensive guides and language specifications are available in the `/docs` folder.
-*   
-## 👤 Creator & Maintainer
-
-Tenuto Studio 3 was created by **Alec Borman** – a systems architect, Rust/Wasm engineer, and author of *The Resonance of Tuesday*. It is the reference implementation of the Tenuto music notation language, designed to bring deterministic, archival‑first principles to music composition.
-
-Building on the same philosophy of sovereign, declarative creative infrastructure, Alec has extended this vision to visual art with **Gesso Studio** – a deterministic DSL for visual intent that unifies material physics, compositional logic, and on‑chain provenance.
-
-- **LinkedIn:** [Alec Borman](https://www.linkedin.com/in/alec-borman-9680b3160/)
-- **GitHub:** [@alec-borman](https://github.com/alec-borman)
-- **Gesso Studio:** [github.com/alec-borman/Gesso-Studio](https://github.com/alec-borman/Gesso-Studio)
-
-For inquiries, collaborations, or to discuss the future of deterministic creative tools, reach out directly.
