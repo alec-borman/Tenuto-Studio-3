@@ -1,0 +1,43 @@
+domain "teleportation_sprint" "1.6.2" {
+
+  meta @{
+    name: "Episode 1.6.2: The SVG Escape Bug Fix",
+    description: "Resolves a compilation error in tenutoc/src/engrave/svg.rs caused by incorrectly escaped quotes (\\\") in the Rust source code.",
+    sprint_id: "EP-01-SVG-ESCAPE-FIX",
+    baseline_centroid: "centroid:current_project_v1.6.0",
+    target_similarity: 1.0,
+    dimensions: 1024
+  }
+
+  %% =========================================================================
+  %% 1. SPRINT FEATURES: The Syntax Delta
+  %% =========================================================================
+
+  feature "parity:rust_syntax_correction" {
+    weight: 1.0,
+    target: "tenutoc/src/engrave/svg.rs"
+    description: "Unescape incorrectly escaped double quotes in the Rust source code."
+    requirements: [
+      "Replace all instances of `\\\"` with `\"` where they represent string literals.",
+      "Replace all instances of `\\\\\\\"` with `\\\"` inside format! macros.",
+      "Ensure the file compiles cleanly with `cargo check`."
+    ]
+    dimension_contributions: {
+      "arch:determinism": 1.0,
+      "arch:grammar_strictness": 1.0
+    }
+  }
+
+  %% =========================================================================
+  %% 2. THE OBJECTIVE FUNCTION
+  %% =========================================================================
+
+  deterministic "evaluate_compilation_success" {
+    input: [ "tenutoc/src/engrave/svg.rs" ]
+    steps: [
+      { action: "parse_rust_ast" },
+      { verify: "no_syntax_errors" }
+    ]
+    threshold: 0.00
+  }
+}
