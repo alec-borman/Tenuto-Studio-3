@@ -97,7 +97,6 @@ impl EngraverLayout {
 
     fn calculate_measure_ideal_widths(&self, ast: &Ast) -> Vec<MeasureLayout> {
         ast.measures.iter().map(|measure| {
-            let mut positions: std::collections::HashSet<i32> = std::collections::HashSet::new();
             // We use ordered float for hashset, or just round to 3 decimals
             // For simplicity, we'll collect to a Vec and sort/dedup later
             let mut pos_vec = vec![0.0];
