@@ -1,45 +1,43 @@
 # Contributing to Tenuto 3.0
 
-Thank you for your interest in contributing to Tenuto! As the "System of Record" for music, we maintain exceptionally high standards for code quality, safety, and architectural integrity.
+Welcome to the Tenuto open-source community! We are thrilled to have you help us build the definitive System of Record for Music.
 
-## Architectural Philosophy
+## The Tandem Skyscraper Architecture (Addendum K)
 
-**Strict Decoupling / Black Box Mindset**
+Tenuto 3.0 is a fully open-source, standalone digital signal processing and musical logic language. However, you may encounter references to the `.tela` format, "intent vectors," and the "Teleportation Execution Engine" in our internal documentation or commit history.
 
-Tenuto is built on a philosophy of strict decoupling. The core compiler (`tenutoc`) operates as a pure function: it takes source code as input and produces an Intermediate Representation (IR), MIDI, and SVG data as output. 
+This is part of the **Tandem Skyscraper Architecture**:
+*   **Tenuto 3.0 (Open Source):** The public-facing, flagship audio and execution engine. It is fully functional, sovereign, and requires absolutely no proprietary tools to compile, run, or render music.
+*   **The .tela Teleportation Protocol (Internal/Unreleased):** The proprietary, meta-architectural physics engine used by the core maintainers to *author* the Tenuto 3.0 compiler. It uses deterministic, 1024-dimensional vector geometry to mathematically guarantee the structural integrity of the Tenuto codebase.
 
-*   **No Leaky Abstractions:** The frontend must never assume the internal state of the Wasm compiler.
-*   **Memory Safety:** The boundary between Rust (Wasm) and TypeScript is strictly typed. Memory allocated in Wasm must be explicitly freed.
-*   **Immutability:** Treat the AST and IR as immutable data structures once generated.
+### The Skybridge Protocol
 
-## The Shadow Pipeline Protocol
+The connection between these two projects is the **Skybridge**. This bridge operates with a strict, one-way dependency to protect the open-source community.
 
-Tenuto 3.0 operates under a **Dual-Track Mandate**. Any change to the compiler logic must be implemented in both TypeScript (for the live web preview scaffolding) and Rust (for the high-performance core).
+**You DO NOT need to learn or use the `.tela` Teleportation Protocol to contribute to Tenuto.**
 
-*   **TypeScript Scaffolding:** Used for the web preview and rapid prototyping.
-*   **Rust Core (`tenutoc`):** The absolute single source of truth and high-performance engine.
+Please submit standard Rust and TypeScript pull requests (PRs) just as you would for any other open-source project.
 
-### Wasm Compilation
+## The Vectorized Audit Process
 
-Because the cloud environment is sandboxed, Wasm compilation is handled locally by the developer using `wasm-pack`. The compiled output must be committed to the `public/pkg` directory.
+When you submit a PR, the core maintainers will run your code through our internal `telac` Embedding Compiler.
 
-## Testing Rules
+1.  **Topological Traversal:** The system performs a topological traversal of the Abstract Syntax Tree (AST) to generate a 1024-dimension geometric coordinate for your PR.
+2.  **Vector Delta ($\Delta$) Alignment:** We check if your code aligns with the mathematical gravity of the Tenuto architecture.
+3.  **Merge or Refactor:** If it aligns, your PR is merged! If it introduces an architectural regression (a massive Vector Delta spike), the core team will work with you to refactor it.
 
-All new features and bug fixes must be accompanied by rigorous testing.
+## Conformance Profiles & The Golden Rule of Parsing
 
-1.  **Rust (Compiler Core):**
-    *   Unit tests are required for all new parsing and compilation logic.
-    *   **Property-Based Testing:** Use `proptest` for parsing and lexing to ensure the compiler can handle edge cases and malformed input without panicking.
+To foster a modular open-source ecosystem, Tenuto 3.0 defines three progressive **Conformance Profiles**. When contributing to a specific backend or renderer, please be aware of its target profile:
 
-2.  **TypeScript (Frontend & Tooling):**
-    *   **TypeDoc Requirements:** All exported interfaces, classes, and functions MUST be documented using TSDoc comments. This is critical for maintaining the generated API documentation.
-    *   Ensure strict typing across the Web Worker boundary (`CompilerRequest` and `CompilerResponse`).
+*   **Profile A (Core Conformance):** The Logic Layer (MIDI, MusicXML). Bypasses advanced audio features like `style=concrete`.
+*   **Profile B (Native Audio Conformance):** The DSP Layer (Native Audio, Web Audio API). Executes continuous physics and sampling.
+*   **Profile C (Delegation Conformance):** The Network Layer (OSC, Ableton Link). Orchestrates external hardware and software.
 
-## Zero-Warning Policy
+### The Golden Rule of Parsing (Frontend Universality)
 
-We enforce a **Zero-Warning Policy** across the entire codebase.
+Regardless of the backend's Conformance Profile, **ALL** compliant Tenuto 3.0 frontends **MUST** implement the complete Lexer and LL(1) Parser for the entire v3.0 grammar.
 
-*   **Rust:** Your code must compile with `cargo build` and `cargo clippy` with zero warnings. Unused variables, dead code, or unhandled `Result` types are not permitted.
-*   **TypeScript:** Your code must pass `npm run lint` (TypeScript compiler checks) with zero errors or warnings.
+If a basic sheet-music compiler encounters `style=synth` or `.accelerate(-12)`, it **MUST NOT** crash. The frontend must successfully ingest the tokens and build the complete AST. Feature exclusion happens strictly during the Backend Emitting phase.
 
-Any pull request introducing warnings will be rejected.
+Thank you for helping us build the future of musical intent!
