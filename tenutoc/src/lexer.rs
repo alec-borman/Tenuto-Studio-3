@@ -6,9 +6,9 @@ use logos::{Logos, Lexer};
 /// For example, `4.stacc` is parsed as `Number("4")`, `Symbol(".")`, `Identifier("stacc")`
 /// rather than incorrectly consuming the dot as part of a floating-point number.
 #[derive(Logos, Hash, Eq, PartialEq, Clone, Debug)]
-#[logos(skip r"[ \t\n\f\r]+")]
-#[logos(skip r"//[^\n]*")]
-#[logos(skip r"%%[^\n]*")]
+#[logos(skip r"[ \t\n\f\r]+", priority = 2)]
+#[logos(skip r"//[^\n]*", priority = 2)]
+#[logos(skip r"%%[^\n]*", priority = 2)]
 pub enum Token {
     #[token("tenuto", |lex| lex.slice().to_string())]
     #[token("meta", |lex| lex.slice().to_string())]
@@ -20,10 +20,22 @@ pub enum Token {
     #[token("var", |lex| lex.slice().to_string())]
     Keyword(String),
 
-    #[regex(r"[a-zA-Z_$\+\-#^][a-zA-Z0-9_$\+\-#^]*", |lex| lex.slice().to_string())]
+    #[token("<[")]
+    VoiceOpen,
+
+    #[token("]>")]
+    VoiceClose,
+
+    #[token("@{")]
+    MapOpen,
+
+    #[regex(r"[0-9]+(\.[0-9]+)?(ms|s|ticks)", |lex| lex.slice().to_string(), priority = 2)]
+    TimeVal(String),
+
+    #[regex(r"[a-zA-Z_$\+\-#^][a-zA-Z0-9_$\+\-#^]*", |lex| lex.slice().to_string(), priority = 2)]
     Identifier(String),
 
-    #[regex(r"[0-9]+", lex_number)]
+    #[regex(r"[0-9]+", lex_number, priority = 2)]
     Number(String),
 
     #[regex(r#""[^"]*""#, |lex| {
@@ -114,6 +126,31 @@ mod tests {
 
         let actual: Vec<Token> = lexer.filter_map(Result::ok).collect();
         assert_eq!(actual, expected, "Lexer failed to isolate dots from identifiers/numbers.");
+    }
+
+    #[test]
+    fn test_timeval_and_sigils() {
+        let source = "<[ v1: c4:4.pull(15ms) ]> @{";
+        let lexer = Token::lexer(source);
+
+        let expected = vec![
+            Token::VoiceOpen,
+            Token::Identifier("v1".to_string()),
+            Token::Symbol(":".to_string()),
+            Token::Identifier("c4".to_string()),
+            Token::Symbol(":".to_string()),
+            Token::Number("4".to_string()),
+            Token::Symbol(".".to_string()),
+            Token::Identifier("pull".to_string()),
+            Token::Symbol("(".to_string()),
+            Token::TimeVal("15ms".to_string()),
+            Token::Symbol(")".to_string()),
+            Token::VoiceClose,
+            Token::MapOpen,
+        ];
+
+        let actual: Vec<Token> = lexer.filter_map(Result::ok).collect();
+        assert_eq!(actual, expected, "Lexer failed to parse TimeVal or compound sigils.");
     }
 
     // Property-based testing: Throw random garbage at the lexer to ensure it NEVER panics.

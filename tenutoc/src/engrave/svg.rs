@@ -1,4 +1,4 @@
-use crate::ast::{Ast, Event, Measure, Note, Chord, Tuplet};
+use crate::ast::{Ast, Event, Measure};
 use super::layout::{EngraverLayout, LayoutOptions, ScoreLayout, SystemLayout, MeasureLayout, PositionedEvent};
 use super::skyline::Skyline;
 use super::kurbo::{Kurbo, Point};
@@ -174,19 +174,52 @@ fn render_event(
     part_accidental_state: &mut HashMap<String, String>
 ) -> String {
     let mut svg = String::new();
-    if let Event::Note(note) = &pe.event {
-        svg.push_str(&render_note(pe, note, pe.x, next_pe.map(|p| p.x), staff_y, top_skyline, bottom_skyline, parts, staff_spacing, measure_x, part_accidental_state));
-    } else if let Event::Chord(chord) = &pe.event {
-        for note in &chord.notes {
-            svg.push_str(&render_note(pe, note, pe.x, next_pe.map(|p| p.x), staff_y, top_skyline, bottom_skyline, parts, staff_spacing, measure_x, part_accidental_state));
+    match &pe.event {
+        Event::Note(pitch, dur, mods) => {
+            svg.push_str(&render_note(pe, pitch, dur.as_deref(), mods, pe.x, next_pe.map(|p| p.x), staff_y, top_skyline, bottom_skyline, parts, staff_spacing, measure_x, part_accidental_state));
         }
+        Event::Chord(pitches, dur, mods) => {
+            for pitch in pitches {
+                svg.push_str(&render_note(pe, pitch, dur.as_deref(), mods, pe.x, next_pe.map(|p| p.x), staff_y, top_skyline, bottom_skyline, parts, staff_spacing, measure_x, part_accidental_state));
+            }
+        }
+        _ => {}
     }
     svg
 }
 
+fn parse_pitch_info(pitch_lit: &str) -> (String, String, i32) {
+    if pitch_lit == "r" {
+        return ("r".to_string(), "".to_string(), 4);
+    }
+    let mut idx = pitch_lit.len();
+    if let Some(i) = pitch_lit.find(|c: char| c.is_ascii_digit() || c == '-') {
+        idx = i;
+    }
+    let base_and_acc = &pitch_lit[..idx];
+    let oct = if idx < pitch_lit.len() {
+        pitch_lit[idx..].parse::<i32>().unwrap_or(4)
+    } else {
+        4
+    };
+
+    let mut base = String::new();
+    let mut acc = String::new();
+    for c in base_and_acc.chars() {
+        if c == '#' || c == 'b' || c == '+' || c == '-' {
+            acc.push(c);
+        } else {
+            base.push(c);
+        }
+    }
+    (base, acc, oct)
+}
+
 fn render_note(
     pe: &PositionedEvent, 
-    note: &Note, 
+    pitch_lit: &str,
+    duration: Option<&str>,
+    modifiers: &[String],
     x: f32, 
     next_x: Option<f32>, 
     staff_y: f32, 
@@ -198,16 +231,25 @@ fn render_note(
     part_accidental_state: &mut HashMap<String, String>
 ) -> String {
     let mut target_staff_y = staff_y;
-    if let Some(cross) = &note.cross {
-        if let Some(idx) = parts.iter().position(|p| p == cross) {
+    
+    let mut cross = None;
+    for m in modifiers {
+        if m.starts_with("cross(") && m.ends_with(")") {
+            cross = Some(m[6..m.len()-1].to_string());
+        }
+    }
+
+    if let Some(c) = cross {
+        if let Some(idx) = parts.iter().position(|p| p == &c) {
             target_staff_y = idx as f32 * staff_spacing;
         }
     }
 
-    let y = get_pitch_y(&note.pitch, note.octave.unwrap_or(4), target_staff_y);
+    let (base_pitch, accidental, octave) = parse_pitch_info(pitch_lit);
+    let y = get_pitch_y(&base_pitch, octave, target_staff_y);
     let mut svg = String::new();
 
-    if note.pitch != "r" {
+    if base_pitch != "r" {
         let max_ledgers = 15;
         if y > target_staff_y + 40.0 && y <= target_staff_y + 40.0 + max_ledgers as f32 * 10.0 {
             let mut ly = target_staff_y + 50.0;
@@ -224,11 +266,11 @@ fn render_note(
         }
     }
 
-    let is_grace = note.modifiers.as_ref().map_or(false, |m| m.contains(&"grace".to_string()));
+    let is_grace = modifiers.contains(&"grace".to_string());
     let scale = if is_grace { 0.7 } else { 1.0 };
 
     let mut duration_val = 4;
-    let mut dur_str = note.duration.clone();
+    let mut dur_str = duration.unwrap_or("4").to_string();
     if dur_str.ends_with('.') {
         dur_str.pop();
     }
@@ -265,9 +307,9 @@ fn render_note(
         }
     }
 
-    if note.pitch != "r" {
-        let pitch_key = format!("{}{}", note.pitch.to_lowercase(), note.octave.unwrap_or(4));
-        let current_accidental = note.accidental.clone().unwrap_or_default();
+    if base_pitch != "r" {
+        let pitch_key = format!("{}{}", base_pitch.to_lowercase(), octave);
+        let current_accidental = accidental;
         let previous_accidental = part_accidental_state.get(&pitch_key).cloned().unwrap_or_default();
 
         let mut acc_symbol = "";
@@ -287,23 +329,21 @@ fn render_note(
         }
     }
 
-    if let Some(modifiers) = &note.modifiers {
-        for mod_str in modifiers {
-            if mod_str == "slur" || mod_str == "tie" {
-                let arc_start_x = x + 5.0;
-                let arc_end_x = next_x.map(|nx| nx + 5.0).unwrap_or(x + 30.0);
-                let stem_up = y > target_staff_y + 20.0;
-                let is_top = !stem_up;
-                let dir = if is_top { -1.0 } else { 1.0 };
-                
-                let p0 = Point { x: arc_start_x, y: y + dir * 10.0 };
-                let p3 = Point { x: arc_end_x, y: y + dir * 10.0 };
-                
-                let skyline = if is_top { &*top_skyline } else { &*bottom_skyline };
-                let [cp0, cp1, cp2, cp3] = Kurbo::route_slur(p0, p3, skyline, is_top, measure_x);
-                
-                svg.push_str(&format!("<path d=\"M {} {} C {} {}, {} {}, {} {}\" fill=\"none\" stroke=\"#000\" stroke-width=\"1.5\" />", cp0.x, cp0.y, cp1.x, cp1.y, cp2.x, cp2.y, cp3.x, cp3.y));
-            }
+    for mod_str in modifiers {
+        if mod_str == "slur" || mod_str == "tie" {
+            let arc_start_x = x + 5.0;
+            let arc_end_x = next_x.map(|nx| nx + 5.0).unwrap_or(x + 30.0);
+            let stem_up = y > target_staff_y + 20.0;
+            let is_top = !stem_up;
+            let dir = if is_top { -1.0 } else { 1.0 };
+            
+            let p0 = Point { x: arc_start_x, y: y + dir * 10.0 };
+            let p3 = Point { x: arc_end_x, y: y + dir * 10.0 };
+            
+            let skyline = if is_top { &*top_skyline } else { &*bottom_skyline };
+            let [cp0, cp1, cp2, cp3] = Kurbo::route_slur(p0, p3, skyline, is_top, measure_x);
+            
+            svg.push_str(&format!("<path d=\"M {} {} C {} {}, {} {}, {} {}\" fill=\"none\" stroke=\"#000\" stroke-width=\"1.5\" />", cp0.x, cp0.y, cp1.x, cp1.y, cp2.x, cp2.y, cp3.x, cp3.y));
         }
     }
 

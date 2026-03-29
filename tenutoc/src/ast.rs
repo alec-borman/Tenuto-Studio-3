@@ -36,6 +36,9 @@ pub struct Measure {
     pub meta: Option<HashMap<String, String>>,
     pub parts: Vec<Part>,
     pub markers: Option<Vec<String>>,
+    pub index: Option<u32>,
+    pub absolute_start_tick: Option<u64>, // Additive merge boundary
+    pub logic: Vec<LogicNode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -52,62 +55,41 @@ pub struct Voice {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type")]
+pub struct MacroInvocation {
+    pub name: String,
+    pub args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum LogicNode {
+    EventNode(Event),
+    Polyphonic(PolyphonicBlock),
+    Assignment(String, Box<LogicNode>), // e.g., vln: c4:4
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PolyphonicBlock {
+    pub voices: Vec<Voice>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Rational {
+    pub num: u32,
+    pub den: u32,
+}
+
+pub type PitchLit = String;
+pub type Duration = String;
+pub type Modifier = String;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
 pub enum Event {
-    #[serde(rename = "note")]
-    Note(Note),
-    #[serde(rename = "chord")]
-    Chord(Chord),
-    #[serde(rename = "tuplet")]
-    Tuplet(Tuplet),
-    #[serde(rename = "macro_call")]
-    MacroCall(MacroCall),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Note {
-    pub pitch: String,
-    pub octave: Option<i32>,
-    pub accidental: Option<String>,
-    pub duration: String,
-    pub articulation: Option<String>,
-    pub modifiers: Option<Vec<String>>,
-    pub cross: Option<String>,
-    pub lyric: Option<String>,
-    pub push: Option<i32>,
-    pub pull: Option<i32>,
-    pub line: usize,
-    pub column: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Chord {
-    pub notes: Vec<Note>,
-    pub duration: String,
-    pub articulation: Option<String>,
-    pub modifiers: Option<Vec<String>>,
-    pub cross: Option<String>,
-    pub lyric: Option<String>,
-    pub push: Option<i32>,
-    pub pull: Option<i32>,
-    pub line: usize,
-    pub column: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Tuplet {
-    pub ratio: String,
-    pub events: Vec<Event>,
-    pub modifiers: Option<Vec<String>>,
-    pub cross: Option<String>,
-    pub line: usize,
-    pub column: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct MacroCall {
-    pub id: String,
-    pub transpose: Option<i32>,
-    pub line: usize,
-    pub column: usize,
+    Note(PitchLit, Option<Duration>, Vec<Modifier>),
+    Chord(Vec<PitchLit>, Option<Duration>, Vec<Modifier>),
+    Rest(Option<Duration>),
+    Spacer(Option<Duration>, Vec<Modifier>), // The 's' token for invisible automation
+    Tuplet(Vec<Event>, Rational),            // Standard Polyrhythm
+    Euclidean(PitchLit, u32, u32),           // K hits, N slots e.g., (k):3/8
+    MacroCall(MacroInvocation),
 }

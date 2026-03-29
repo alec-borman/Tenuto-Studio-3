@@ -1,4 +1,4 @@
-use crate::ast::{Ast, Event, Measure, Note, Chord, Tuplet};
+use crate::ast::{Ast, Event, Measure};
 use std::collections::{HashMap, HashSet};
 
 pub struct LayoutOptions {
@@ -111,8 +111,8 @@ impl EngraverLayout {
 
                     for event in &voice.events {
                         let is_grace = match event {
-                            Event::Note(n) => n.modifiers.as_ref().map_or(false, |m| m.contains(&"grace".to_string())),
-                            Event::Chord(c) => c.modifiers.as_ref().map_or(false, |m| m.contains(&"grace".to_string())),
+                            Event::Note(_, _, mods) => mods.contains(&"grace".to_string()),
+                            Event::Chord(_, _, mods) => mods.contains(&"grace".to_string()),
                             _ => false,
                         };
 
@@ -120,25 +120,14 @@ impl EngraverLayout {
                         pos_vec.push(current_time);
 
                         let mut internal_events = None;
-                        if let Event::Tuplet(t) = event {
+                        if let Event::Tuplet(events, ratio) = event {
                             let mut tuplet_events = Vec::new();
                             let mut tuplet_time = 0.0;
-                            let ratio_parts: Vec<&str> = t.ratio.split('/').collect();
-                            let mut num = 3.0;
-                            let mut den = 2.0;
-                            if ratio_parts.len() == 2 {
-                                num = ratio_parts[0].parse().unwrap_or(3.0);
-                                den = ratio_parts[1].parse().unwrap_or(2.0);
-                            } else if ratio_parts.len() == 1 {
-                                num = ratio_parts[0].parse().unwrap_or(3.0);
-                                den = 2.0_f32.powf(num.log2().floor());
-                                if (num - den).abs() < f32::EPSILON {
-                                    den = num / 2.0;
-                                }
-                            }
+                            let num = ratio.num as f32;
+                            let den = ratio.den as f32;
                             let multiplier = den / num;
 
-                            for e in &t.events {
+                            for e in events {
                                 let e_dur = self.get_event_duration(e) * multiplier;
                                 tuplet_events.push(PositionedEvent {
                                     event: e.clone(),
@@ -179,7 +168,7 @@ impl EngraverLayout {
             }
 
             pos_vec.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            pos_vec.dedup_by(|a, b| (a - *b).abs() < 1e-6);
+            pos_vec.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
 
             let mut position_x = HashMap::new();
             let mut current_x = self.options.measure_padding;
@@ -193,14 +182,19 @@ impl EngraverLayout {
                     self.options.spacing_constant * d.powf(self.options.spacing_exponent)
                 };
 
-                let mut rod = if d < 0.01 { 12.0 } else { 20.0 };
+                let mut rod: f32 = if d < 0.01 { 12.0 } else { 20.0 };
 
                 for voice_data in &event_map {
                     for pe in &voice_data.positioned_events {
                         if (pe.logical_time - pos_vec[i]).abs() < 1e-6 {
                             let lyric = match &pe.event {
-                                Event::Note(n) => n.lyric.as_ref(),
-                                Event::Chord(c) => c.lyric.as_ref(),
+                                Event::Note(_, _, mods) | Event::Chord(_, _, mods) => {
+                                    mods.iter().find(|m| m.starts_with("lyric(")).and_then(|m| {
+                                        let start = m.find('(')?;
+                                        let end = m.find(')')?;
+                                        Some(m[start+1..end].to_string())
+                                    })
+                                },
                                 _ => None,
                             };
                             if let Some(l) = lyric {
@@ -393,29 +387,24 @@ impl EngraverLayout {
 
     fn get_event_duration(&self, event: &Event) -> f32 {
         match event {
-            Event::Note(n) => self.parse_duration(&n.duration),
-            Event::Chord(c) => self.parse_duration(&c.duration),
-            Event::Tuplet(t) => {
+            Event::Note(_, dur, _) | Event::Chord(_, dur, _) | Event::Rest(dur) | Event::Spacer(dur, _) => {
+                if let Some(d) = dur {
+                    self.parse_duration(d)
+                } else {
+                    1.0 // Default duration
+                }
+            },
+            Event::Tuplet(events, ratio) => {
                 let mut sum = 0.0;
-                for e in &t.events {
+                for e in events {
                     sum += self.get_event_duration(e);
                 }
-                let ratio_parts: Vec<&str> = t.ratio.split('/').collect();
-                let mut num = 3.0;
-                let mut den = 2.0;
-                if ratio_parts.len() == 2 {
-                    num = ratio_parts[0].parse().unwrap_or(3.0);
-                    den = ratio_parts[1].parse().unwrap_or(2.0);
-                } else if ratio_parts.len() == 1 {
-                    num = ratio_parts[0].parse().unwrap_or(3.0);
-                    den = 2.0_f32.powf(num.log2().floor());
-                    if (num - den).abs() < f32::EPSILON {
-                        den = num / 2.0;
-                    }
-                }
+                let num = ratio.num as f32;
+                let den = ratio.den as f32;
                 sum * (den / num)
             }
-            Event::MacroCall(m) => *self.macro_durations.get(&m.id).unwrap_or(&0.0),
+            Event::Euclidean(_, _, _) => 1.0, // Default duration for Euclidean for now
+            Event::MacroCall(m) => *self.macro_durations.get(&m.name).unwrap_or(&0.0),
         }
     }
 

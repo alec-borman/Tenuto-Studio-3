@@ -54,37 +54,7 @@ fn duration_with_mods() -> impl Parser<Token, (String, Vec<Modifier>), Error = S
 
 fn note_parser() -> impl Parser<Token, Vec<Event>, Error = Simple<Token>> {
     let pitch_octave = filter_map(|span, tok| match tok {
-        Token::Identifier(i) => {
-            // Basic regex-like logic for pitch + accidental + octave
-            // e.g., c#4, eb5, c4, r
-            let mut pitch = String::new();
-            let mut accidental = None;
-            let mut octave = None; // default to None
-            
-            if i == "r" {
-                pitch = "r".to_string();
-            } else {
-                let chars: Vec<char> = i.chars().collect();
-                if chars.is_empty() {
-                    return Err(Simple::expected_input_found(span, Vec::new(), Some(Token::Identifier(i))));
-                }
-                pitch = chars[0].to_lowercase().to_string();
-                
-                let mut idx = 1;
-                if idx < chars.len() && (chars[idx] == '#' || chars[idx] == 'b' || chars[idx] == '+' || chars[idx] == '-' || chars[idx] == '^' || chars[idx] == 'v') {
-                    accidental = Some(chars[idx].to_string());
-                    idx += 1;
-                }
-                
-                if idx < chars.len() {
-                    let oct_str: String = chars[idx..].iter().collect();
-                    if let Ok(o) = oct_str.parse::<i32>() {
-                        octave = Some(o);
-                    }
-                }
-            }
-            Ok((pitch, accidental, octave))
-        },
+        Token::Identifier(i) => Ok(i),
         _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
     });
 
@@ -104,75 +74,31 @@ fn note_parser() -> impl Parser<Token, Vec<Event>, Error = Simple<Token>> {
     pitch_octave
         .then(euclidean)
         .then(just(Token::Symbol(":".to_string())).ignore_then(duration_with_mods()).or_not())
-        .map_with_span(|(((pitch, accidental, octave), eucl), dur_mods), span| {
+        .map_with_span(|((pitch_lit, eucl), dur_mods), _span| {
             let (duration, mods) = dur_mods.unwrap_or(("4".to_string(), vec![]));
             
-            let mut articulation = None;
             let mut modifiers = Vec::new();
-            let mut cross = None;
-            let mut push = None;
-            let mut pull = None;
             
             for m in mods {
                 match m {
                     Modifier::Simple(s) => {
-                        if ["stacc", "ten", "marc", "slur", "f", "p", "ff", "pp", "sfz"].contains(&s.as_str()) {
-                            articulation = Some(s.clone());
-                            modifiers.push(s);
-                        } else {
-                            modifiers.push(s);
-                        }
+                        modifiers.push(s);
                     },
                     Modifier::Call(name, args) => {
-                        if name == "cross" && !args.is_empty() {
-                            cross = Some(args[0].clone());
-                        } else if name == "push" && !args.is_empty() {
-                            push = args[0].parse().ok();
-                        } else if name == "pull" && !args.is_empty() {
-                            pull = args[0].parse().ok();
-                        } else {
-                            modifiers.push(format!("{}({})", name, args.join("")));
-                        }
+                        modifiers.push(format!("{}({})", name, args.join("")));
                     }
                 }
             }
             
-            let mods_opt = if modifiers.is_empty() { None } else { Some(modifiers) };
             let (hits, steps) = eucl.unwrap_or((1, 1));
             let mut events = Vec::new();
             
             for i in 0..steps {
                 let is_hit = (i * hits) % steps < hits;
                 if is_hit {
-                    events.push(Event::Note(Note {
-                        pitch: pitch.clone(),
-                        octave,
-                        accidental: accidental.clone(),
-                        duration: duration.clone(),
-                        articulation: articulation.clone(),
-                        modifiers: mods_opt.clone(),
-                        cross: cross.clone(),
-                        lyric: None,
-                        push,
-                        pull,
-                        line: span.start, // Approximation for now
-                        column: span.end,
-                    }));
+                    events.push(Event::Note(pitch_lit.clone(), Some(duration.clone()), modifiers.clone()));
                 } else {
-                    events.push(Event::Note(Note {
-                        pitch: "r".to_string(),
-                        octave,
-                        accidental: None,
-                        duration: duration.clone(),
-                        articulation: None,
-                        modifiers: None,
-                        cross: None,
-                        lyric: None,
-                        push: None,
-                        pull: None,
-                        line: span.start,
-                        column: span.end,
-                    }));
+                    events.push(Event::Note("r".to_string(), Some(duration.clone()), vec![]));
                 }
             }
             events
@@ -181,94 +107,28 @@ fn note_parser() -> impl Parser<Token, Vec<Event>, Error = Simple<Token>> {
 fn chord_parser() -> impl Parser<Token, Event, Error = Simple<Token>> {
     just(Token::Symbol("[".to_string()))
         .ignore_then(filter_map(|span, tok| match tok {
-            Token::Identifier(i) => {
-                let mut pitch = String::new();
-                let mut accidental = None;
-                let mut octave = None;
-                
-                let chars: Vec<char> = i.chars().collect();
-                if chars.is_empty() {
-                    return Err(Simple::expected_input_found(span, Vec::new(), Some(Token::Identifier(i))));
-                }
-                pitch = chars[0].to_lowercase().to_string();
-                
-                let mut idx = 1;
-                if idx < chars.len() && (chars[idx] == '#' || chars[idx] == 'b' || chars[idx] == '+' || chars[idx] == '-' || chars[idx] == '^' || chars[idx] == 'v') {
-                    accidental = Some(chars[idx].to_string());
-                    idx += 1;
-                }
-                
-                if idx < chars.len() {
-                    let oct_str: String = chars[idx..].iter().collect();
-                    if let Ok(o) = oct_str.parse::<i32>() {
-                        octave = Some(o);
-                    }
-                }
-                
-                Ok(Note {
-                    pitch,
-                    octave,
-                    accidental,
-                    duration: "4".to_string(),
-                    articulation: None,
-                    modifiers: None,
-                    cross: None,
-                    lyric: None,
-                    push: None,
-                    pull: None,
-                    line: span.start,
-                    column: span.end,
-                })
-            },
+            Token::Identifier(i) => Ok(i),
             _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
         }).repeated())
         .then_ignore(just(Token::Symbol("]".to_string())))
         .then(just(Token::Symbol(":".to_string())).ignore_then(duration_with_mods()).or_not())
-        .map_with_span(|(notes, dur_mods), span| {
+        .map_with_span(|(notes, dur_mods), _span| {
             let (duration, mods) = dur_mods.unwrap_or(("4".to_string(), vec![]));
             
-            let mut articulation = None;
             let mut modifiers = Vec::new();
-            let mut cross = None;
-            let mut push = None;
-            let mut pull = None;
             
             for m in mods {
                 match m {
                     Modifier::Simple(s) => {
-                        if ["stacc", "ten", "marc", "slur", "f", "p", "ff", "pp", "sfz"].contains(&s.as_str()) {
-                            articulation = Some(s.clone());
-                            modifiers.push(s);
-                        } else {
-                            modifiers.push(s);
-                        }
+                        modifiers.push(s);
                     },
                     Modifier::Call(name, args) => {
-                        if name == "cross" && !args.is_empty() {
-                            cross = Some(args[0].clone());
-                        } else if name == "push" && !args.is_empty() {
-                            push = args[0].parse().ok();
-                        } else if name == "pull" && !args.is_empty() {
-                            pull = args[0].parse().ok();
-                        } else {
-                            modifiers.push(format!("{}({})", name, args.join("")));
-                        }
+                        modifiers.push(format!("{}({})", name, args.join("")));
                     }
                 }
             }
             
-            Event::Chord(Chord {
-                notes,
-                duration,
-                articulation,
-                modifiers: if modifiers.is_empty() { None } else { Some(modifiers) },
-                cross,
-                lyric: None,
-                push,
-                pull,
-                line: span.start,
-                column: span.end,
-            })
+            Event::Chord(notes, Some(duration), modifiers)
         })
 }
 
@@ -339,6 +199,9 @@ fn measure_parser() -> impl Parser<Token, Vec<Measure>, Error = Simple<Token>> {
                     meta: None,
                     parts: parts.clone(),
                     markers: None,
+                    index: None,
+                    absolute_start_tick: None,
+                    logic: Vec::new(),
                 });
             }
             measures

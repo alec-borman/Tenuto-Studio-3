@@ -49,7 +49,7 @@ pub fn compile_tenuto_to_midi(source: &str) -> Result<Vec<u8>, String> {
             for e in errors {
                 diagnostics.push(WasmDiagnostic {
                     code: "E1000".to_string(),
-                    message: format!("Parse error: {}", e),
+                    message: format!("Parse error: {:?}", e),
                     line: e.span().start / 80 + 1, // Rough approximation, we need a better span to line/col mapping
                     column: e.span().start % 80 + 1,
                 });

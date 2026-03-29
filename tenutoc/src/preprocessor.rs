@@ -35,47 +35,60 @@ impl Preprocessor {
         best_octave
     }
 
+    fn parse_pitch(pitch_lit: &str) -> (String, Option<i32>) {
+        if let Some(idx) = pitch_lit.find(|c: char| c.is_ascii_digit() || c == '-') {
+            let base = pitch_lit[..idx].to_string();
+            let oct = pitch_lit[idx..].parse::<i32>().ok();
+            (base, oct)
+        } else {
+            (pitch_lit.to_string(), None)
+        }
+    }
+
     fn process_events(events: &mut Vec<Event>, style: &str, current_octave: &mut i32, current_pitch: &mut String) {
         for event in events {
             match event {
-                Event::Note(note) => {
-                    if note.pitch == "r" {
-                        if note.octave.is_none() {
-                            note.octave = Some(*current_octave);
-                        }
-                        continue;
-                    }
-                    if let Some(oct) = note.octave {
-                        *current_octave = oct;
+                Event::Note(pitch, _, _) => {
+                    let (base_pitch, oct_opt) = Self::parse_pitch(pitch);
+                    let mut new_octave = *current_octave;
+                    if let Some(oct) = oct_opt {
+                        new_octave = oct;
                     } else if style == "relative" {
-                        *current_octave = Self::calculate_relative_octave(*current_octave, current_pitch, &note.pitch);
-                        note.octave = Some(*current_octave);
-                    } else {
-                        note.octave = Some(*current_octave);
+                        new_octave = Self::calculate_relative_octave(*current_octave, current_pitch, &base_pitch);
                     }
-                    *current_pitch = note.pitch.clone();
+                    *current_octave = new_octave;
+                    *current_pitch = base_pitch.clone();
+                    *pitch = format!("{}{}", base_pitch, new_octave);
                 }
-                Event::Chord(chord) => {
-                    for note in &mut chord.notes {
-                        if note.pitch == "r" {
-                            if note.octave.is_none() {
-                                note.octave = Some(*current_octave);
-                            }
-                            continue;
-                        }
-                        if let Some(oct) = note.octave {
-                            *current_octave = oct;
+                Event::Chord(pitches, _, _) => {
+                    for pitch in pitches {
+                        let (base_pitch, oct_opt) = Self::parse_pitch(pitch);
+                        let mut new_octave = *current_octave;
+                        if let Some(oct) = oct_opt {
+                            new_octave = oct;
                         } else if style == "relative" {
-                            *current_octave = Self::calculate_relative_octave(*current_octave, current_pitch, &note.pitch);
-                            note.octave = Some(*current_octave);
-                        } else {
-                            note.octave = Some(*current_octave);
+                            new_octave = Self::calculate_relative_octave(*current_octave, current_pitch, &base_pitch);
                         }
-                        *current_pitch = note.pitch.clone();
+                        *current_octave = new_octave;
+                        *current_pitch = base_pitch.clone();
+                        *pitch = format!("{}{}", base_pitch, new_octave);
                     }
                 }
-                Event::Tuplet(tuplet) => {
-                    Self::process_events(&mut tuplet.events, style, current_octave, current_pitch);
+                Event::Rest(_) | Event::Spacer(_, _) => {}
+                Event::Tuplet(events, _) => {
+                    Self::process_events(events, style, current_octave, current_pitch);
+                }
+                Event::Euclidean(pitch, _, _) => {
+                    let (base_pitch, oct_opt) = Self::parse_pitch(pitch);
+                    let mut new_octave = *current_octave;
+                    if let Some(oct) = oct_opt {
+                        new_octave = oct;
+                    } else if style == "relative" {
+                        new_octave = Self::calculate_relative_octave(*current_octave, current_pitch, &base_pitch);
+                    }
+                    *current_octave = new_octave;
+                    *current_pitch = base_pitch.clone();
+                    *pitch = format!("{}{}", base_pitch, new_octave);
                 }
                 Event::MacroCall(_) => {}
             }
@@ -86,85 +99,75 @@ impl Preprocessor {
         let mut new_events = Vec::new();
         for event in events.drain(..) {
             match event {
-                Event::Note(mut note) => {
+                Event::Note(pitch, mut dur, mut mods) => {
                     let mut roll_count = 1;
-                    if let Some(ref mut mods) = note.modifiers {
-                        if let Some(pos) = mods.iter().position(|m| m.starts_with("roll(")) {
-                            let roll_mod = mods.remove(pos);
-                            if let Some(start) = roll_mod.find('(') {
-                                if let Some(end) = roll_mod.find(')') {
-                                    if let Ok(count) = roll_mod[start+1..end].parse::<u32>() {
-                                        roll_count = count;
-                                    }
+                    if let Some(pos) = mods.iter().position(|m| m.starts_with("roll(")) {
+                        let roll_mod = mods.remove(pos);
+                        if let Some(start) = roll_mod.find('(') {
+                            if let Some(end) = roll_mod.find(')') {
+                                if let Ok(count) = roll_mod[start+1..end].parse::<u32>() {
+                                    roll_count = count;
                                 }
                             }
                         }
-                        if mods.is_empty() {
-                            note.modifiers = None;
-                        }
                     }
                     if roll_count > 1 {
-                        let mut base_dur = note.duration.clone();
-                        let mut dots = 0;
-                        while base_dur.ends_with('.') {
-                            dots += 1;
-                            base_dur.pop();
-                        }
-                        if let Ok(num) = base_dur.parse::<u32>() {
-                            let new_num = num * roll_count;
-                            let new_dur = format!("{}{}", new_num, ".".repeat(dots));
-                            note.duration = new_dur;
+                        if let Some(ref mut d) = dur {
+                            let mut base_dur = d.clone();
+                            let mut dots = 0;
+                            while base_dur.ends_with('.') {
+                                dots += 1;
+                                base_dur.pop();
+                            }
+                            if let Ok(num) = base_dur.parse::<u32>() {
+                                let new_num = num * roll_count;
+                                *d = format!("{}{}", new_num, ".".repeat(dots));
+                            }
                         }
                         for _ in 0..roll_count {
-                            new_events.push(Event::Note(note.clone()));
+                            new_events.push(Event::Note(pitch.clone(), dur.clone(), mods.clone()));
                         }
                     } else {
-                        new_events.push(Event::Note(note));
+                        new_events.push(Event::Note(pitch, dur, mods));
                     }
                 }
-                Event::Chord(mut chord) => {
+                Event::Chord(pitches, mut dur, mut mods) => {
                     let mut roll_count = 1;
-                    if let Some(ref mut mods) = chord.modifiers {
-                        if let Some(pos) = mods.iter().position(|m| m.starts_with("roll(")) {
-                            let roll_mod = mods.remove(pos);
-                            if let Some(start) = roll_mod.find('(') {
-                                if let Some(end) = roll_mod.find(')') {
-                                    if let Ok(count) = roll_mod[start+1..end].parse::<u32>() {
-                                        roll_count = count;
-                                    }
+                    if let Some(pos) = mods.iter().position(|m| m.starts_with("roll(")) {
+                        let roll_mod = mods.remove(pos);
+                        if let Some(start) = roll_mod.find('(') {
+                            if let Some(end) = roll_mod.find(')') {
+                                if let Ok(count) = roll_mod[start+1..end].parse::<u32>() {
+                                    roll_count = count;
                                 }
                             }
                         }
-                        if mods.is_empty() {
-                            chord.modifiers = None;
-                        }
                     }
                     if roll_count > 1 {
-                        let mut base_dur = chord.duration.clone();
-                        let mut dots = 0;
-                        while base_dur.ends_with('.') {
-                            dots += 1;
-                            base_dur.pop();
-                        }
-                        if let Ok(num) = base_dur.parse::<u32>() {
-                            let new_num = num * roll_count;
-                            let new_dur = format!("{}{}", new_num, ".".repeat(dots));
-                            chord.duration = new_dur;
+                        if let Some(ref mut d) = dur {
+                            let mut base_dur = d.clone();
+                            let mut dots = 0;
+                            while base_dur.ends_with('.') {
+                                dots += 1;
+                                base_dur.pop();
+                            }
+                            if let Ok(num) = base_dur.parse::<u32>() {
+                                let new_num = num * roll_count;
+                                *d = format!("{}{}", new_num, ".".repeat(dots));
+                            }
                         }
                         for _ in 0..roll_count {
-                            new_events.push(Event::Chord(chord.clone()));
+                            new_events.push(Event::Chord(pitches.clone(), dur.clone(), mods.clone()));
                         }
                     } else {
-                        new_events.push(Event::Chord(chord));
+                        new_events.push(Event::Chord(pitches, dur, mods));
                     }
                 }
-                Event::Tuplet(mut tuplet) => {
-                    Self::expand_rolls(&mut tuplet.events);
-                    new_events.push(Event::Tuplet(tuplet));
+                Event::Tuplet(mut events, ratio) => {
+                    Self::expand_rolls(&mut events);
+                    new_events.push(Event::Tuplet(events, ratio));
                 }
-                Event::MacroCall(m) => {
-                    new_events.push(Event::MacroCall(m));
-                }
+                other => new_events.push(other),
             }
         }
         *events = new_events;
