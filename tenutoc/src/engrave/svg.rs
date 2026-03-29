@@ -13,7 +13,7 @@ pub fn export_svg(ast: &Ast) -> Result<String, String> {
     
     for page in &layout.pages {
         let mut svg_parts = String::new();
-        svg_parts.push_str(&format!("<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">", page.width, page.height, page.width, page.height));
+        svg_parts.push_str(&format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{}\" height=\"{}\" viewBox=\"0 0 {} {}\">", page.width, page.height, page.width, page.height));
         
         svg_parts.push_str("<style>
         .staff-line { stroke: #000; stroke-width: 1px; }
@@ -39,7 +39,7 @@ pub fn export_svg(ast: &Ast) -> Result<String, String> {
 
 fn render_system(system: &SystemLayout, ast: &Ast) -> String {
     let mut svg_parts = String::new();
-    svg_parts.push_str(&format!("<g transform="translate(0, {})">", system.y));
+    svg_parts.push_str(&format!("<g transform=\"translate(0, {})\">", system.y));
     
     let parts: Vec<String> = ast.defs.iter().map(|d| d.id.clone()).collect();
     let staff_height = 40.0;
@@ -57,9 +57,9 @@ fn render_system(system: &SystemLayout, ast: &Ast) -> String {
             let start_y = *indices.iter().min().unwrap() as f32 * staff_spacing;
             let end_y = *indices.iter().max().unwrap() as f32 * staff_spacing + staff_height;
             
-            svg_parts.push_str(&format!("<path d="M -5 {} L -15 {} L -15 {} L -5 {}" fill="none" stroke="#000" stroke-width="2" />", start_y, start_y, end_y, end_y));
+            svg_parts.push_str(&format!("<path d=\"M -5 {} L -15 {} L -15 {} L -5 {}\" fill=\"none\" stroke=\"#000\" stroke-width=\"2\" />", start_y, start_y, end_y, end_y));
             let mid_y = (start_y + end_y) / 2.0;
-            svg_parts.push_str(&format!("<text x="-25" y="{}" font-family="sans-serif" font-size="12px" text-anchor="middle" dominant-baseline="middle" transform="rotate(-90 -25 {})">{}</text>", mid_y, mid_y, group_name));
+            svg_parts.push_str(&format!("<text x=\"-25\" y=\"{}\" font-family=\"sans-serif\" font-size=\"12px\" text-anchor=\"middle\" dominant-baseline=\"middle\" transform=\"rotate(-90 -25 {})\">{}</text>", mid_y, mid_y, group_name));
         }
     }
 
@@ -71,23 +71,23 @@ fn render_system(system: &SystemLayout, ast: &Ast) -> String {
         
         for i in 0..5 {
             let y = staff_y + i as f32 * 10.0;
-            svg_parts.push_str(&format!("<line x1="0" y1="{}" x2="{}" y2="{}" class="staff-line" shape-rendering="crispEdges" />", y, total_system_width, y));
+            svg_parts.push_str(&format!("<line x1=\"0\" y1=\"{}\" x2=\"{}\" y2=\"{}\" class=\"staff-line\" shape-rendering=\"crispEdges\" />", y, total_system_width, y));
         }
         
         let is_treble = part_index == 0;
         let clef_char = if is_treble { "𝄞" } else { "𝄢" };
         let clef_y = if is_treble { staff_y + 34.0 } else { staff_y + 28.0 };
-        svg_parts.push_str(&format!("<text x="15" y="{}" class="clef" font-size="46px">{}</text>", clef_y, clef_char));
+        svg_parts.push_str(&format!("<text x=\"15\" y=\"{}\" class=\"clef\" font-size=\"46px\">{}</text>", clef_y, clef_char));
         
-        let mut start_barline = format!("<line x1="0" y1="{}" x2="0" y2="{}" class="barline" shape-rendering="crispEdges" />", staff_y, staff_y + 40.0);
+        let mut start_barline = format!("<line x1=\"0\" y1=\"{}\" x2=\"0\" y2=\"{}\" class=\"barline\" shape-rendering=\"crispEdges\" />", staff_y, staff_y + 40.0);
         if let Some(first_measure) = system.measures.first() {
             if let Some(markers) = &first_measure.measure.markers {
                 if markers.contains(&"|:".to_string()) {
                     start_barline = format!("
-          <line x1="0" y1="{0}" x2="0" y2="{1}" class="barline" stroke-width="3" shape-rendering="crispEdges" />
-          <line x1="6" y1="{0}" x2="6" y2="{1}" class="barline" stroke-width="1" shape-rendering="crispEdges" />
-          <circle cx="12" cy="{2}" r="2" fill="#000" />
-          <circle cx="12" cy="{3}" r="2" fill="#000" />
+          <line x1=\"0\" y1=\"{0}\" x2=\"0\" y2=\"{1}\" class=\"barline\" stroke-width=\"3\" shape-rendering=\"crispEdges\" />
+          <line x1=\"6\" y1=\"{0}\" x2=\"6\" y2=\"{1}\" class=\"barline\" stroke-width=\"1\" shape-rendering=\"crispEdges\" />
+          <circle cx=\"12\" cy=\"{2}\" r=\"2\" fill=\"#000\" />
+          <circle cx=\"12\" cy=\"{3}\" r=\"2\" fill=\"#000\" />
         ", staff_y, staff_y + 40.0, staff_y + 15.0, staff_y + 25.0);
                 }
             }
@@ -101,10 +101,10 @@ fn render_system(system: &SystemLayout, ast: &Ast) -> String {
 
     let mut current_x = system_start_x;
     for measure in &system.measures {
-        svg_parts.push_str(&format!("<g transform="translate({}, 0)">", current_x));
+        svg_parts.push_str(&format!("<g transform=\"translate({}, 0)\">", current_x));
         
         if measure.measure.number != 1 {
-            svg_parts.push_str(&format!("<text x="0" y="-15" font-family="serif" font-size="12px" font-style="italic" fill="#666">{}</text>", measure.measure.number));
+            svg_parts.push_str(&format!("<text x=\"0\" y=\"-15\" font-family=\"serif\" font-size=\"12px\" font-style=\"italic\" fill=\"#666\">{}</text>", measure.measure.number));
         }
         
         let mut accidental_state: HashMap<String, HashMap<String, String>> = HashMap::new();
@@ -127,15 +127,15 @@ fn render_system(system: &SystemLayout, ast: &Ast) -> String {
         
         for (part_index, _part_id) in parts.iter().enumerate() {
             let staff_y = part_index as f32 * staff_spacing;
-            let mut end_barline = format!("<line x1="{}" y1="{}" x2="{}" y2="{}" class="barline" />", measure.width, staff_y, measure.width, staff_y + 40.0);
+            let mut end_barline = format!("<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" class=\"barline\" />", measure.width, staff_y, measure.width, staff_y + 40.0);
             
             if let Some(markers) = &measure.measure.markers {
                 if markers.contains(&":|".to_string()) {
                     end_barline = format!("
-            <line x1="{0}" y1="{2}" x2="{0}" y2="{3}" class="barline" stroke-width="1" />
-            <line x1="{1}" y1="{2}" x2="{1}" y2="{3}" class="barline" stroke-width="3" />
-            <circle cx="{4}" cy="{5}" r="2" fill="#000" />
-            <circle cx="{4}" cy="{6}" r="2" fill="#000" />
+            <line x1=\"{0}\" y1=\"{2}\" x2=\"{0}\" y2=\"{3}\" class=\"barline\" stroke-width=\"1\" />
+            <line x1=\"{1}\" y1=\"{2}\" x2=\"{1}\" y2=\"{3}\" class=\"barline\" stroke-width=\"3\" />
+            <circle cx=\"{4}\" cy=\"{5}\" r=\"2\" fill=\"#000\" />
+            <circle cx=\"{4}\" cy=\"{6}\" r=\"2\" fill=\"#000\" />
           ", measure.width - 4.0, measure.width, staff_y, staff_y + 40.0, measure.width - 8.0, staff_y + 15.0, staff_y + 25.0);
                 }
             }
