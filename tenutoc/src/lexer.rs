@@ -6,9 +6,9 @@ use logos::{Logos, Lexer};
 /// For example, `4.stacc` is parsed as `Number("4")`, `Symbol(".")`, `Identifier("stacc")`
 /// rather than incorrectly consuming the dot as part of a floating-point number.
 #[derive(Logos, Hash, Eq, PartialEq, Clone, Debug)]
-#[logos(skip r"[ \t\n\f\r]+", priority = 2)]
-#[logos(skip r"//[^\n]*", priority = 2)]
-#[logos(skip r"%%[^\n]*", priority = 2)]
+#[regex(r"[ \t\n\f\r]+", logos::skip, priority = 2)]
+#[regex(r"//[^\n]*", logos::skip, priority = 2)]
+#[regex(r"%%[^\n]*", logos::skip, priority = 2)]
 pub enum Token {
     #[token("tenuto", |lex| lex.slice().to_string())]
     #[token("meta", |lex| lex.slice().to_string())]
