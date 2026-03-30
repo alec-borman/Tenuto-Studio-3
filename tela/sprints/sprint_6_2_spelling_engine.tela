@@ -1,0 +1,59 @@
+domain "teleportation_sprint" "6.2.0" {
+  meta @{
+    name: "Sprint 6.2: The Accidental State Machine",
+    description: "Constructs the Spelling Engine to translate integer MIDI pitches into visually correct diatonic spellings, enforcing Elaine Gould's rules for accidental visibility.",
+    sprint_id: "EP-06-02-SPELLING-ENGINE",
+    baseline_centroid: "centroid:current_project_v1.6.1",
+    target_similarity: 1.0,
+    dimensions: 1024
+  }
+
+  %% =========================================================================
+  %% SPRINT FEATURES: The Semantic Delta
+  %% =========================================================================
+  
+  feature "logic:line_of_fifths_derivation" {
+    weight: 1.0,
+    target: "tenutoc/src/spelling.rs"
+    intent: "Derive visually accurate Step and Alter attributes from raw MIDI values by interrogating the active Key Signature via a Line of Fifths array."
+    requirements: [
+      "Implement a function that maps a MIDI pitch (e.g., 61) to the correct Step and Alter based on the active key.",
+      "Prefer sharps in sharp keys (e.g., G, D) and flats in flat keys (e.g., F, Bb) [9]."
+    ]
+    dimension_contributions: {
+      "arch:determinism": 1.0,
+      "arch:rendering_physics": 0.9
+    }
+  }
+
+  feature "state:elaine_gould_accidental_memory" {
+    weight: 1.0,
+    target: "tenutoc/src/spelling.rs"
+    intent: "Implement a strict Accidental State Machine that tracks visual accidental memory per-octave and resets at measure boundaries."
+    requirements: [
+      "Rule 1: The memory array MUST be wiped clean at every absolute barline (Measure Resets) [11].",
+      "Rule 2: Accidental memory MUST be tracked independently per-octave array index (Octave Isolation) [11].",
+      "Rule 3: If an event cancels a previous accidental or deviates from the global Key Signature baseline, the engine MUST force an AccidentalDisplay::Explicit instruction [11]."
+    ]
+    dimension_contributions: {
+      "arch:spec_compliance": 1.0,
+      "arch:intent_preservation": 1.0
+    }
+  }
+
+  %% =========================================================================
+  %% THE OBJECTIVE FUNCTION (Geometric Parity)
+  %% =========================================================================
+  
+  deterministic "evaluate_spelling_parity" {
+    input: [
+      "cargo test --test accidental_state_machine"
+    ]
+    steps: [
+      { assert: "A C#4 followed by a C4 in the same measure triggers an Explicit Natural for the C4." },
+      { assert: "A C#4 followed by a C5 in the same measure does NOT trigger a Natural, respecting Octave Isolation." },
+      { assert: "A C#4 followed by a C4 in the NEXT measure forces the system to consult the Key Signature due to the Barline Reset." }
+    ]
+    success_condition: "All tests pass with 0.00 Vector Delta."
+  }
+}
