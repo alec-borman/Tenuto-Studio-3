@@ -14,6 +14,7 @@ pub mod midi;
 pub mod xml;
 pub mod engrave;
 pub mod decompile;
+pub mod emitter;
 
 #[derive(Serialize, Deserialize)]
 pub struct WasmDiagnostic {
@@ -34,41 +35,15 @@ pub fn compile_to_timeline(source: &str) -> Result<ir::Timeline, String> {
 }
 
 #[wasm_bindgen]
-pub fn compile_tenuto_to_midi(source: &str) -> Result<Vec<u8>, String> {
-    let tokens: Vec<lexer::Token> = lexer::Token::lexer(source).filter_map(|res| res.ok()).collect();
-    match parser::parser().parse(tokens) {
-        Ok(ast) => {
-            // Print the number of measures parsed
-            web_sys::console::log_1(&format!("[TEDP] Rust Parser Success: {} measures parsed.", ast.measures.len()).into());
-            
-            // For now, return a "Success" byte array if it parses successfully
-            Ok(b"Success".to_vec())
-        }
-        Err(errors) => {
-            let mut diagnostics = Vec::new();
-            for e in errors {
-                diagnostics.push(WasmDiagnostic {
-                    code: "E1000".to_string(),
-                    message: format!("Parse error: {:?}", e),
-                    line: e.span().start / 80 + 1, // Rough approximation, we need a better span to line/col mapping
-                    column: e.span().start % 80 + 1,
-                });
-            }
-            Err(serde_json::to_string(&diagnostics).unwrap_or_else(|_| "[]".to_string()))
-        }
-    }
+pub fn compile_tenuto_json(source: &str) -> Result<String, JsValue> {
+    let timeline = compile_to_timeline(source).map_err(|e| JsValue::from_str(&e))?;
+    emitter::to_json(&timeline).map_err(|e| JsValue::from_str(&e))
 }
 
 #[wasm_bindgen]
-pub fn compile_tenuto_to_ir_json(source: &str) -> Result<String, String> {
-    let tokens: Vec<lexer::Token> = lexer::Token::lexer(source).filter_map(|res| res.ok()).collect();
-    let ast = parser::parser().parse(tokens).map_err(|e| format!("{:?}", e))?;
-    
-    let mut preprocessor = preprocessor::Preprocessor::new();
-    let expanded_ast = preprocessor.expand(ast).map_err(|e| e.to_string())?;
-    
-    // For now, return the expanded AST as JSON to compare with TS AST
-    serde_json::to_string(&expanded_ast).map_err(|e| e.to_string())
+pub fn compile_tenuto_midi(source: &str) -> Result<Vec<u8>, JsValue> {
+    let timeline = compile_to_timeline(source).map_err(|e| JsValue::from_str(&e))?;
+    emitter::to_midi(&timeline).map_err(|e| JsValue::from_str(&e))
 }
 
 #[wasm_bindgen]

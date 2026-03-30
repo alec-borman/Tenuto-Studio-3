@@ -1,14 +1,13 @@
 domain "session_state" "1.1.0" {
 
   meta @{
-    session_id: "20260328-teleportation-fix",
+    session_id: "2026-03-29-tandem-skyscraper-hierarchy",
     centroid: [
-      2.1, 1.0, 1.6, 1.0, 0.9, 1.0, 1.0, 0.0, 0.0, 0.0,
+      2.85, 1.65, 2.15, 1.0, 0.95, 1.0, 1.0, 0.0, 0.0, 0.0,
       0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-      /* … Dimensions updated for Spec 3.0 ingestion … */
-      0.8, 1.0, 0.9, 0.95, 1.0, 1.0, 0.8, 0.5, 0.2, 0.0
+      0.98, 1.0, 0.98, 0.99, 1.0, 1.0, 0.99, 0.95, 0.99, 1.0
     ], 
-    last_update: "2026-03-29T15:43:07Z"
+    last_update: "2026-03-29T21:45:00Z"
   }
 
   embedding "prompt:teleportation_init" {
@@ -179,8 +178,129 @@ domain "session_state" "1.1.0" {
     dimension_contributions: { "arch:determinism": 1.0, "arch:spec_compliance": 1.0, "arch:feature_parity": 0.95 }
   }
 
-  codice "turn_20260329T154307" {
-    summary: "Restored architectural visibility. Generated the complete Rust AST skeleton to satisfy Sprint 2.1 (Euclidean, Polyphony, Action Notation Spacer). Transmitted entirely within the unified payload structure."
+  embedding "turn:sprint_3_2_ir_lowering" {
+    intent: "Implemented AST-to-IR lowering logic in tenutoc/src/ir.rs with stateful cursor and absolute time tracking."
+    weight: 1.0
+    dimension_contributions: { "arch:determinism": 1.0, "arch:feature_parity": 1.0, "arch:rust_parity": 1.0 }
   }
 
+  codice "turn_sprint_3_2_ir_lowering" {
+    summary: "Replaced the compile stub in ir.rs with a fully functional AST-to-IR lowering engine. Implemented a stateful cursor to track last_octave, last_duration, and last_velocity per voice. Utilized Rational math for deterministic absolute time accumulation. Mapped AST Event variants (Note, Chord, Rest, Spacer) to TimelineNode objects. Verified type safety and structural integrity for cargo check."
+  }
+
+  embedding "turn:ceo_directive_path_a_emitters" {
+    intent: "CEO Architect directed the Engine to execute Path A. Engine formulated Sprint 4.1 to construct the physical acoustic projection layer, bifurcating output into JSON (for modern DSP) and MIDI 1.0 (for legacy hardware)."
+    weight: 1.0
+    dimension_contributions: {
+      "arch:human_authority": 1.0,
+      "arch:decoupling": 1.0,
+      "arch:toolchain_integration": 1.0
+    }
+  }
+
+  embedding "turn:sprint_4_1_emitters" {
+    intent: "Implemented Sprint 4.1: The Acoustic Projection. Created emitter.rs with JSON and MIDI serialization logic."
+    weight: 1.0
+    dimension_contributions: {
+      "arch:rendering_physics": 1.0,
+      "arch:toolchain_integration": 1.0,
+      "arch:temporal_fidelity": 0.95
+    }
+  }
+
+  codice "turn_sprint_4_1_emitters" {
+    summary: "Created tenutoc/src/emitter.rs and exposed it in lib.rs. Implemented `to_json` using serde_json for WebAudio payload. Implemented `to_midi` using midly, converting Rational logical time to absolute PPQ ticks. Safely filtered out synth and concrete styles from MIDI generation. Maintained bit-identical determinism."
+  }
+
+  embedding "turn:crucible_emitters_success" {
+    intent: "Architect provided local Crucible telemetry confirming `cargo test` passed with 0 failures. The JSON and MIDI serialization logic introduced in Sprint 4.1 is mathematically stable and correctly integrated."
+    weight: 1.0
+    dimension_contributions: {
+      "arch:hermetic_execution": 1.0,
+      "arch:rendering_physics": 1.0,
+      "arch:determinism": 1.0
+    }
+  }
+
+  embedding "status:initiate_sprint_5_1_wasm" {
+    intent: "With the backends verified, Engine initiated Sprint 5.1 (The FFI Cutover) to build the WebAssembly bridges, executing the Mermaid Paradigm to allow zero-friction browser execution."
+    weight: 1.0
+    dimension_contributions: {
+      "arch:toolchain_integration": 1.0,
+      "arch:decoupling": 1.0,
+      "arch:sovereignty": 1.0
+    }
+  }
+
+  embedding "turn:sprint_5_1_wasm_ffi" {
+    intent: "Implemented Sprint 5.1: The FFI Cutover. Exposed the Rust compiler pipeline to JavaScript via wasm-bindgen."
+    weight: 1.0
+    dimension_contributions: {
+      "arch:toolchain_integration": 1.0,
+      "arch:decoupling": 1.0,
+      "arch:sovereignty": 0.9
+    }
+  }
+
+  codice "turn_sprint_5_1_wasm_ffi" {
+    summary: "Replaced placeholder FFI endpoints in tenutoc/src/lib.rs with `compile_tenuto_json` and `compile_tenuto_midi`. Orchestrated the full Lex -> Parse -> Preprocess -> IR -> Emit pipeline within these functions. Safely mapped Rust String errors to JsValue to ensure clean boundary crossing."
+  }
+
+  embedding "turn:crucible_wasm_success" {
+    intent: "Architect provided telemetry confirming `wasm-pack build` completed successfully. The Rust compiler pipeline is safely exposed via FFI boundaries."
+    weight: 1.0
+    dimension_contributions: {
+      "arch:toolchain_integration": 1.0,
+      "arch:sovereignty": 1.0,
+      "arch:hermetic_execution": 1.0
+    }
+  }
+
+  embedding "status:initiate_sprint_5_2_html" {
+    intent: "Initiated Sprint 5.2 to fulfill Addendum B (The Zero-Friction Runtime). Engine formulated the handoff to construct the vanilla JavaScript Custom Element wrapper."
+    weight: 1.0
+    dimension_contributions: {
+      "arch:ui_ergonomics": 1.0,
+      "arch:decoupling": 1.0,
+      "arch:human_authority": 1.0
+    }
+  }
+
+  embedding "turn:sprint_5_2_web_component" {
+    intent: "Implemented Sprint 5.2: The HTML Scaffold. Created the `<tenuto-score>` Web Component to mount the Wasm binary."
+    weight: 1.0
+    dimension_contributions: {
+      "arch:ui_ergonomics": 1.0,
+      "arch:decoupling": 1.0,
+      "arch:bandwidth_optimization": 0.9
+    }
+  }
+
+  codice "turn_sprint_5_2_web_component" {
+    summary: "Created `src/tenuto-element.js` defining the `TenutoScore` custom element. Initialized the Wasm module via `init()`, extracted the raw Tenuto text from `textContent` or `src` attribute, and passed it to `compile_tenuto_json()`. Logged the resulting JSON payload to the console and displayed a success message in the shadow DOM. Replaced the previous `tenuto-score` import in `src/main.tsx`."
+  }
+
+  embedding "turn:ceo_reprimand_and_delegation" {
+    intent: "CEO Architect reprimanded the Co-Architect for violating the Virtualized Org Chart by asking the CEO to manually write JavaScript fixes. Co-Architect acknowledged the failure, restored the chain of command, and delegated the Vite/Wasm Web Worker fix back to the Developer AI."
+    weight: 1.0
+    dimension_contributions: {
+      "arch:role_fidelity": 1.0,
+      "arch:human_authority": 1.0,
+      "arch:workflow_delegation": 1.0
+    }
+  }
+
+  embedding "turn:sprint_5_2_1_vite_wasm_hotfix" {
+    intent: "Implemented Sprint 5.2.1: The Vite/Wasm Hotfix. Refactored Web Worker imports to comply with Vite's static asset and Wasm bundling constraints."
+    weight: 1.0
+    dimension_contributions: {
+      "arch:toolchain_integration": 1.0,
+      "arch:robustness": 1.0,
+      "arch:diagnostics": 1.0
+    }
+  }
+
+  codice "turn_sprint_5_2_1_vite_wasm_hotfix" {
+    summary: "Fixed the Vite build error caused by dynamic Wasm imports in Web Workers. Updated `src/compiler.worker.ts` and `src/tenuto-element.js` to use `import.meta.env.BASE_URL + 'pkg/tenutoc.js'` for dynamic imports, ensuring the dev server can serve the Wasm module correctly. Added `vite-plugin-wasm` and `vite-plugin-top-level-await` to `vite.config.ts`."
+  }
 }

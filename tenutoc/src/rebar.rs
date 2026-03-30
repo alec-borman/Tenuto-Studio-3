@@ -1,9 +1,9 @@
-use crate::ir::{Timeline, AtomicEvent};
+use crate::ir::{Timeline, TimelineNode};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct VisualEvent {
-    pub atomic: AtomicEvent,
+    pub atomic: TimelineNode,
 }
 
 #[derive(Debug, Clone)]

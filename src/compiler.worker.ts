@@ -39,10 +39,8 @@ async function bootCompiler() {
         
         // Task 2: Wasm Worker Connectivity (Production Fix #1)
         try {
-            // @ts-ignore
-            const wasmPath = '/pkg/tenutoc.js';
+            const wasmPath = import.meta.env.BASE_URL + 'pkg/tenutoc.js';
             const wasmModule = await import(/* @vite-ignore */ wasmPath);
-            // @ts-ignore
             await wasmModule.default(); 
             wasmCore = wasmModule;
             console.log("[TEDP] Wasm Steel Track Connected. Absolute Authority Established.");
