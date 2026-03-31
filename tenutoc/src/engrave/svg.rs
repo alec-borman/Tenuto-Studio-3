@@ -1,10 +1,10 @@
-use crate::ast::{Ast, Event, Measure};
-use crate::spelling::{AccidentalStateMachine, AccidentalDisplay, Step};
-use super::layout::{EngraverLayout, LayoutOptions, ScoreLayout, SystemLayout, MeasureLayout, PositionedEvent};
+use crate::ast::{Ast, Event};
+use crate::spelling::{AccidentalStateMachine, AccidentalDisplay};
+use super::layout::{EngraverLayout, LayoutOptions, PositionedEvent, SystemLayout};
 use super::skyline::Skyline;
 use super::kurbo::{Kurbo, Point};
 use super::smufl::get_smufl_metadata;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 pub fn export_svg(ast: &Ast) -> Result<String, String> {
     let mut layout_engine = EngraverLayout::new(LayoutOptions::default());
@@ -224,7 +224,7 @@ fn parse_pitch_info(pitch_lit: &str) -> (String, String, i32) {
 }
 
 fn render_note(
-    pe: &PositionedEvent, 
+    _pe: &PositionedEvent, 
     pitch_lit: &str,
     duration: Option<&str>,
     modifiers: &[String],

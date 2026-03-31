@@ -1,5 +1,5 @@
 use crate::ast::{Ast, Event, Measure};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 pub struct LayoutOptions {
     pub system_width: f32,
@@ -175,7 +175,7 @@ impl EngraverLayout {
 
             for i in 0..pos_vec.len().saturating_sub(1) {
                 let d = pos_vec[i + 1] - pos_vec[i];
-                let mut spring = if d < 0.01 {
+                let spring = if d < 0.01 {
                     15.0
                 } else {
                     self.options.spacing_constant * d.powf(self.options.spacing_exponent)
@@ -230,7 +230,6 @@ impl EngraverLayout {
 
             if event_map.len() > 1 {
                 for i in 0..pos_vec.len() {
-                    let mut events_at_pos: Vec<&mut PositionedEvent> = Vec::new();
                     for voice_data in &mut event_map {
                         for pe in &mut voice_data.positioned_events {
                             if (pe.logical_time - pos_vec[i]).abs() < 1e-6 {

@@ -253,6 +253,11 @@ use crate::cursor::Cursor;
 pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
     let mut events = Vec::new();
     
+    let mut defs_map = HashMap::new();
+    for def in ast.defs {
+        defs_map.insert(def.id.clone(), def);
+    }
+    
     let mut voice_time: HashMap<(String, String), Rational> = HashMap::new();
     let mut voice_cursors: HashMap<(String, String), Cursor> = HashMap::new();
     
@@ -275,15 +280,32 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                             
                             let (physical_offset, _reverse, accelerate) = parse_modifiers(&mods);
                             
+                            let track_style = defs_map.get(&part.id).map(|d| d.style.clone()).unwrap_or_else(|| "default".to_string());
+                            let track_patch = defs_map.get(&part.id).map(|d| d.patch.clone()).unwrap_or_else(|| "default".to_string());
+                            
+                            let kind = if track_patch == "engine:concrete_audio" {
+                                EventKind::Concrete {
+                                    id: part.id.clone(),
+                                    key: pitch.clone(),
+                                    params: ConcreteParams {
+                                        slice_start: Rational::new(0, 1),
+                                        slice_end: dur,
+                                        reverse: _reverse,
+                                    }
+                                }
+                            } else {
+                                EventKind::Note { spelling, pitch_midi: midi, velocity: cursor.last_velocity }
+                            };
+                            
                             events.push(TimelineNode {
                                 track_id: part.id.clone(),
-                                track_style: "default".to_string(),
-                                track_patch: "default".to_string(),
+                                track_style,
+                                track_patch,
                                 track_cut_group: None,
                                 logical_time: current_time,
                                 logical_duration: dur,
                                 physical_offset,
-                                kind: EventKind::Note { spelling, pitch_midi: midi, velocity: cursor.last_velocity },
+                                kind,
                                 lyric: None,
                                 lyric_extension: LyricExtension::None,
                                 synth_accelerate_semitones: accelerate,
@@ -297,19 +319,36 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                             
                             let (physical_offset, _reverse, accelerate) = parse_modifiers(&mods);
                             
+                            let track_style = defs_map.get(&part.id).map(|d| d.style.clone()).unwrap_or_else(|| "default".to_string());
+                            let track_patch = defs_map.get(&part.id).map(|d| d.patch.clone()).unwrap_or_else(|| "default".to_string());
+                            
                             for pitch in pitches {
                                 let (spelling, midi, new_octave) = parse_pitch(&pitch, cursor.last_octave as u8);
                                 cursor.last_octave = new_octave as i8;
                                 
+                                let kind = if track_patch == "engine:concrete_audio" {
+                                    EventKind::Concrete {
+                                        id: part.id.clone(),
+                                        key: pitch.clone(),
+                                        params: ConcreteParams {
+                                            slice_start: Rational::new(0, 1),
+                                            slice_end: dur,
+                                            reverse: _reverse,
+                                        }
+                                    }
+                                } else {
+                                    EventKind::Note { spelling, pitch_midi: midi, velocity: cursor.last_velocity }
+                                };
+                                
                                 events.push(TimelineNode {
                                     track_id: part.id.clone(),
-                                    track_style: "default".to_string(),
-                                    track_patch: "default".to_string(),
+                                    track_style: track_style.clone(),
+                                    track_patch: track_patch.clone(),
                                     track_cut_group: None,
                                     logical_time: current_time,
                                     logical_duration: dur,
                                     physical_offset: physical_offset.clone(),
-                                    kind: EventKind::Note { spelling, pitch_midi: midi, velocity: cursor.last_velocity },
+                                    kind,
                                     lyric: None,
                                     lyric_extension: LyricExtension::None,
                                     synth_accelerate_semitones: accelerate,
@@ -322,10 +361,13 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                             let dur = dur_opt.map(|d| parse_duration(&d)).unwrap_or(cursor.last_duration);
                             cursor.last_duration = dur;
                             
+                            let track_style = defs_map.get(&part.id).map(|d| d.style.clone()).unwrap_or_else(|| "default".to_string());
+                            let track_patch = defs_map.get(&part.id).map(|d| d.patch.clone()).unwrap_or_else(|| "default".to_string());
+                            
                             events.push(TimelineNode {
                                 track_id: part.id.clone(),
-                                track_style: "default".to_string(),
-                                track_patch: "default".to_string(),
+                                track_style,
+                                track_patch,
                                 track_cut_group: None,
                                 logical_time: current_time,
                                 logical_duration: dur,
@@ -342,10 +384,13 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                             let dur = dur_opt.map(|d| parse_duration(&d)).unwrap_or(cursor.last_duration);
                             cursor.last_duration = dur;
                             
+                            let track_style = defs_map.get(&part.id).map(|d| d.style.clone()).unwrap_or_else(|| "default".to_string());
+                            let track_patch = defs_map.get(&part.id).map(|d| d.patch.clone()).unwrap_or_else(|| "default".to_string());
+                            
                             events.push(TimelineNode {
                                 track_id: part.id.clone(),
-                                track_style: "default".to_string(),
-                                track_patch: "default".to_string(),
+                                track_style,
+                                track_patch,
                                 track_cut_group: None,
                                 logical_time: current_time,
                                 logical_duration: dur,
@@ -367,17 +412,34 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                             
                             let pattern = crate::euclidean::euclidean(*k, *n);
                             
+                            let track_style = defs_map.get(&part.id).map(|d| d.style.clone()).unwrap_or_else(|| "default".to_string());
+                            let track_patch = defs_map.get(&part.id).map(|d| d.patch.clone()).unwrap_or_else(|| "default".to_string());
+                            
                             for (i, hit) in pattern.iter().enumerate() {
                                 if *hit {
+                                    let kind = if track_patch == "engine:concrete_audio" {
+                                        EventKind::Concrete {
+                                            id: part.id.clone(),
+                                            key: pitch.clone(),
+                                            params: ConcreteParams {
+                                                slice_start: Rational::new(0, 1),
+                                                slice_end: slot_dur,
+                                                reverse: false,
+                                            }
+                                        }
+                                    } else {
+                                        EventKind::Note { spelling: spelling.clone(), pitch_midi: midi, velocity: cursor.last_velocity }
+                                    };
+                                    
                                     events.push(TimelineNode {
                                         track_id: part.id.clone(),
-                                        track_style: "default".to_string(),
-                                        track_patch: "default".to_string(),
+                                        track_style: track_style.clone(),
+                                        track_patch: track_patch.clone(),
                                         track_cut_group: None,
                                         logical_time: current_time + (slot_dur * Rational::new(i as i64, 1)),
                                         logical_duration: slot_dur,
                                         physical_offset: None,
-                                        kind: EventKind::Note { spelling: spelling.clone(), pitch_midi: midi, velocity: cursor.last_velocity },
+                                        kind,
                                         lyric: None,
                                         lyric_extension: LyricExtension::None,
                                         synth_accelerate_semitones: None,
@@ -405,15 +467,32 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                         
                                         let (physical_offset, _reverse, accelerate) = parse_modifiers(mods);
                                         
+                                        let track_style = defs_map.get(&part.id).map(|d| d.style.clone()).unwrap_or_else(|| "default".to_string());
+                                        let track_patch = defs_map.get(&part.id).map(|d| d.patch.clone()).unwrap_or_else(|| "default".to_string());
+                                        
+                                        let kind = if track_patch == "engine:concrete_audio" {
+                                            EventKind::Concrete {
+                                                id: part.id.clone(),
+                                                key: pitch.clone(),
+                                                params: ConcreteParams {
+                                                    slice_start: Rational::new(0, 1),
+                                                    slice_end: dur,
+                                                    reverse: _reverse,
+                                                }
+                                            }
+                                        } else {
+                                            EventKind::Note { spelling, pitch_midi: midi, velocity: cursor.last_velocity }
+                                        };
+                                        
                                         events.push(TimelineNode {
                                             track_id: part.id.clone(),
-                                            track_style: "default".to_string(),
-                                            track_patch: "default".to_string(),
+                                            track_style,
+                                            track_patch,
                                             track_cut_group: None,
                                             logical_time: current_time,
                                             logical_duration: dur,
                                             physical_offset,
-                                            kind: EventKind::Note { spelling, pitch_midi: midi, velocity: cursor.last_velocity },
+                                            kind,
                                             lyric: None,
                                             lyric_extension: LyricExtension::None,
                                             synth_accelerate_semitones: accelerate,
@@ -456,4 +535,56 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
     }
     
     Ok(Timeline { ppq: 1920, events })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rational_new() {
+        let r = Rational::new(2, 4);
+        assert_eq!(r.num, 1);
+        assert_eq!(r.den, 2);
+
+        let r2 = Rational::new(3, -6);
+        assert_eq!(r2.num, -1);
+        assert_eq!(r2.den, 2);
+    }
+
+    #[test]
+    fn test_rational_add() {
+        let r1 = Rational::new(1, 4);
+        let r2 = Rational::new(1, 4);
+        let r3 = r1 + r2;
+        assert_eq!(r3.num, 1);
+        assert_eq!(r3.den, 2);
+    }
+
+    #[test]
+    fn test_rational_sub() {
+        let r1 = Rational::new(1, 2);
+        let r2 = Rational::new(1, 4);
+        let r3 = r1 - r2;
+        assert_eq!(r3.num, 1);
+        assert_eq!(r3.den, 4);
+    }
+
+    #[test]
+    fn test_rational_mul() {
+        let r1 = Rational::new(1, 2);
+        let r2 = Rational::new(3, 4);
+        let r3 = r1 * r2;
+        assert_eq!(r3.num, 3);
+        assert_eq!(r3.den, 8);
+    }
+
+    #[test]
+    fn test_rational_div() {
+        let r1 = Rational::new(1, 2);
+        let r2 = Rational::new(3, 4);
+        let r3 = r1 / r2;
+        assert_eq!(r3.num, 2);
+        assert_eq!(r3.den, 3);
+    }
 }

@@ -7,7 +7,7 @@ pub fn euclidean(k: u32, n: u32) -> Vec<bool> {
     }
 
     let mut pattern = Vec::with_capacity(n as usize);
-    let mut bucket = 0;
+    let mut bucket = n - k;
 
     for _ in 0..n {
         bucket += k;
