@@ -58,3 +58,45 @@ domain "tenuto_compiler" "3.0.1" {
     threshold: 0.02
   }
 }
+
+sustainability "tenuto_compiler" "3.0.1" {
+  meta @{
+    mission: "Build a deterministic, sovereign audio compiler that unifies sheet music and DSP.",
+    license: "MIT OR Commercial"
+  }
+
+  sponsors: []
+
+  roadmap: [
+    {
+      milestone: "Concrete Audio",
+      description: "Map raw audio buffers to alphanumeric keys. Execute granular slicing, time-stretching, and phase-vocoding natively.",
+      estimate: "2026-06-01",
+      funding_required: 10000
+    },
+    {
+      milestone: "Sidechain Ducking",
+      description: "Implement audio routing for sidechain compression and ducking effects directly from the AST.",
+      estimate: "2026-07-15",
+      funding_required: 5000
+    },
+    {
+      milestone: "MusicXML Export",
+      description: "Export the Tenuto IR to standard MusicXML format for compatibility with traditional notation software.",
+      estimate: "2026-09-01",
+      funding_required: 15000
+    },
+    {
+      milestone: "Full SVG Engraving",
+      description: "Complete the visual sheet music rendering engine, moving beyond the current placeholder implementation.",
+      estimate: "2026-11-01",
+      funding_required: 12000
+    },
+    {
+      milestone: "Decompilation",
+      description: "Convert raw MIDI files back into semantic Tenuto code.",
+      estimate: "2027-01-01",
+      funding_required: 8000
+    }
+  ]
+}

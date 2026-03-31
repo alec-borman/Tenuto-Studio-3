@@ -17,6 +17,7 @@ pub mod decompile;
 pub mod emitter;
 pub mod cursor;
 pub mod euclidean;
+pub mod concrete;
 
 #[derive(Serialize, Deserialize)]
 pub struct WasmDiagnostic {

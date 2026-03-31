@@ -232,17 +232,126 @@ pub fn parser() -> impl Parser<Token, Ast, Error = Simple<Token>> {
             metadata
         });
 
+    let map_entry = filter_map(|span, tok| match tok {
+        Token::Identifier(k) => Ok(k),
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    })
+    .then_ignore(just(Token::Symbol(":".to_string())))
+    .then_ignore(just(Token::Symbol("[".to_string())))
+    .then(filter_map(|span, tok| match tok {
+        Token::Number(n) => n.parse::<f64>().map_err(|_| Simple::custom(span, "Invalid number")),
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    }))
+    .then_ignore(just(Token::Symbol(",".to_string())))
+    .then(filter_map(|span, tok| match tok {
+        Token::Number(n) => n.parse::<f64>().map_err(|_| Simple::custom(span, "Invalid number")),
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    }))
+    .then_ignore(just(Token::Symbol("]".to_string())))
+    .map(|((k, start), end)| (k, vec![start, end]));
+
+    let map_block = just(Token::MapOpen)
+        .ignore_then(map_entry.separated_by(just(Token::Symbol(",".to_string())).or_not()))
+        .then_ignore(just(Token::Symbol("}".to_string())))
+        .map(|entries| {
+            let mut map = HashMap::new();
+            for (k, v) in entries {
+                map.insert(k, v);
+            }
+            map
+        });
+
+    let def_attr = filter_map(|span, tok| match tok {
+        Token::Identifier(k) => Ok(k),
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    })
+    .then_ignore(just(Token::Symbol("=".to_string())))
+    .then(
+        filter_map(|span, tok| match tok {
+            Token::Identifier(v) => Ok(v),
+            Token::String(v) => Ok(v),
+            _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+        }).map(|v| (v, None))
+        .or(map_block.map(|m| ("".to_string(), Some(m))))
+    );
+
+    let def_parser = just(Token::Keyword("def".to_string()))
+        .ignore_then(filter_map(|span, tok| match tok {
+            Token::Identifier(i) => Ok(i),
+            _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+        }))
+        .then(filter_map(|span, tok| match tok {
+            Token::String(s) => Ok(s),
+            _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+        }))
+        .then(def_attr.repeated())
+        .map(|((id, name), attrs)| {
+            let mut style = "standard".to_string();
+            let mut patch = "default".to_string();
+            let mut src = None;
+            let mut map = None;
+            for (k, (v, m)) in attrs {
+                if k == "style" { style = v; }
+                if k == "patch" { patch = v; }
+                if k == "src" { src = Some(v); }
+                if k == "map" { map = m; }
+            }
+            crate::ast::Definition {
+                id,
+                name,
+                style,
+                patch,
+                group: None,
+                env: None,
+                src,
+                tuning: None,
+                map,
+            }
+        });
+
     meta_block.or_not()
+        .then(def_parser.repeated())
         .then(measure_parser().repeated().flatten())
-        .map(|(meta_opt, measures)| {
+        .map(|((meta_opt, defs), measures)| {
             Ast {
                 version: "3.0.0".to_string(),
                 imports: Vec::new(),
                 vars: HashMap::new(),
                 meta: meta_opt.unwrap_or_default(),
-                defs: Vec::new(),
+                defs,
                 macros: Vec::new(),
                 measures,
             }
         }).then_ignore(end())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lexer::Token;
+    use logos::Logos;
+
+    #[test]
+    fn test_def_parser() {
+        let input = r#"
+        def rh "Right Hand" style=relative patch="gm_piano"
+        def concrete_inst "My Sample" style=concrete src="path.wav" map=@{ c4: [0.0, 1.5] }
+        measure 1 {
+            rh: c4:4
+        }
+        "#;
+        let tokens: Vec<Token> = Token::lexer(input).filter_map(|res| res.ok()).collect();
+        let ast = parser().parse(tokens).unwrap();
+        assert_eq!(ast.defs.len(), 2);
+        assert_eq!(ast.defs[0].id, "rh");
+        assert_eq!(ast.defs[0].style, "relative");
+        assert_eq!(ast.defs[0].patch, "gm_piano");
+        
+        assert_eq!(ast.defs[1].id, "concrete_inst");
+        assert_eq!(ast.defs[1].style, "concrete");
+        assert_eq!(ast.defs[1].src, Some("path.wav".to_string()));
+        assert!(ast.defs[1].map.is_some());
+        let map = ast.defs[1].map.as_ref().unwrap();
+        assert_eq!(map.get("c4"), Some(&vec![0.0, 1.5]));
+    }
 }

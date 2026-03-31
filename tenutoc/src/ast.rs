@@ -7,9 +7,37 @@ pub struct Ast {
     pub imports: Vec<String>,
     pub vars: HashMap<String, String>,
     pub meta: HashMap<String, String>,
+    pub sustainability: Option<Sustainability>,
     pub defs: Vec<Definition>,
     pub macros: Vec<MacroDef>,
     pub measures: Vec<Measure>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Sustainability {
+    pub domain: String,
+    pub version: String,
+    pub mission: String,
+    pub sponsors: Vec<Sponsor>,
+    pub roadmap: Vec<Milestone>,
+    pub license: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Sponsor {
+    pub name: String,
+    pub sponsor_type: String, // grant, commercial_license, individual
+    pub amount: Option<f64>,
+    pub period: String, // YYYY-QQ
+    pub status: String, // pending, active, expired
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Milestone {
+    pub milestone: String,
+    pub date: String, // YYYY-MM-DD
+    pub funding_required: Option<f64>,
+    pub revenue_target: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -22,6 +50,7 @@ pub struct Definition {
     pub env: Option<HashMap<String, String>>,
     pub src: Option<String>,
     pub tuning: Option<Vec<i32>>,
+    pub map: Option<HashMap<String, Vec<f64>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

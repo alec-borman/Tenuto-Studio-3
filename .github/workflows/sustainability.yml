@@ -1,0 +1,73 @@
+name: Sustainability Monitoring
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: '0 0 * * 1' # Weekly on Monday
+
+jobs:
+  sustain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Tenuto
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Clone Tela Repo
+        run: git clone https://github.com/alec-borman/tela.git tela-repo
+
+      - name: Build telac
+        run: |
+          cd tela-repo
+          cargo build --release
+          echo "$(pwd)/target/release" >> $GITHUB_PATH
+
+      - name: Run telac sustain
+        id: sustain
+        run: |
+          REPORT=$(telac sustain .)
+          echo "REPORT<<EOF" >> $GITHUB_OUTPUT
+          echo "$REPORT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          if echo "$REPORT" | grep -q "⚠️ Funding gap detected"; then
+            echo "GAP_DETECTED=true" >> $GITHUB_OUTPUT
+          else
+            echo "GAP_DETECTED=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Manage Sustainability Issue
+        if: steps.sustain.outputs.GAP_DETECTED == 'true'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const report = `${{ steps.sustain.outputs.REPORT }}`;
+            const title = '⚠️ Funding milestone approaching';
+            
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              creator: 'github-actions[bot]'
+            });
+            
+            const existingIssue = issues.data.find(i => i.title === title);
+            
+            if (existingIssue) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existingIssue.number,
+                body: report
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: report
+              });
+            }
