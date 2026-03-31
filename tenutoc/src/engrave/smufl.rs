@@ -55,6 +55,24 @@ pub fn get_smufl_metadata(name: &str) -> Option<&'static SmuflGlyph> {
             stem_up_se: [0.0, 0.0],
             stem_down_nw: [0.0, 0.0],
         }),
+        "accidentalSharp" => Some(&SmuflGlyph {
+            path: "M 0.2 1.5 L 0.2 -1.5 L 0.5 -1.5 L 0.5 1.5 Z M 0.8 1.2 L 0.8 -1.8 L 1.1 -1.8 L 1.1 1.2 Z M -0.2 0.5 L 1.5 -0.2 L 1.5 0.1 L -0.2 0.8 Z M -0.2 -0.5 L 1.5 -1.2 L 1.5 -0.9 L -0.2 -0.2 Z",
+            optical_center: 0.5,
+            stem_up_se: [0.0, 0.0],
+            stem_down_nw: [0.0, 0.0],
+        }),
+        "accidentalFlat" => Some(&SmuflGlyph {
+            path: "M 0 -2 L 0 1.5 C 0.5 1.5 1 1 1 0.5 C 1 0 0.5 -0.5 0 -0.5 Z M 0.2 0.2 C 0.5 0.2 0.8 0.5 0.8 0.8 C 0.8 1.1 0.5 1.3 0.2 1.3 Z",
+            optical_center: 0.5,
+            stem_up_se: [0.0, 0.0],
+            stem_down_nw: [0.0, 0.0],
+        }),
+        "accidentalNatural" => Some(&SmuflGlyph {
+            path: "M 0.2 1.5 L 0.2 -1.5 L 0.4 -1.5 L 0.4 1.5 Z M 0.8 1.5 L 0.8 -1.5 L 1.0 -1.5 L 1.0 1.5 Z M 0.2 0.5 L 1.0 0.2 L 1.0 0.4 L 0.2 0.7 Z M 0.2 -0.2 L 1.0 -0.5 L 1.0 -0.3 L 0.2 0.0 Z",
+            optical_center: 0.5,
+            stem_up_se: [0.0, 0.0],
+            stem_down_nw: [0.0, 0.0],
+        }),
         _ => None,
     }
 }

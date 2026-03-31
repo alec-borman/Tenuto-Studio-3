@@ -216,35 +216,45 @@ fn parse_pitch(pitch: &str, last_octave: u8) -> (Spelling, u8, u8) {
     (spelling, midi, octave)
 }
 
-fn parse_modifiers(mods: &[String]) -> Option<TimeVal> {
+fn parse_modifiers(mods: &[String]) -> (Option<TimeVal>, bool, Option<Rational>) {
+    let mut physical_offset = None;
+    let mut reverse = false;
+    let mut accelerate = None;
+
     for m in mods {
         if m.starts_with(".pull(") && m.ends_with(")") {
             let inner = &m[6..m.len()-1];
             if inner.ends_with("ms") {
                 if let Ok(val) = inner[..inner.len()-2].parse::<i64>() {
-                    return Some(TimeVal::Milliseconds(Rational::new(-val, 1)));
+                    physical_offset = Some(TimeVal::Milliseconds(Rational::new(-val, 1)));
                 }
             }
-        }
-        if m.starts_with(".push(") && m.ends_with(")") {
+        } else if m.starts_with(".push(") && m.ends_with(")") {
             let inner = &m[6..m.len()-1];
             if inner.ends_with("ms") {
                 if let Ok(val) = inner[..inner.len()-2].parse::<i64>() {
-                    return Some(TimeVal::Milliseconds(Rational::new(val, 1)));
+                    physical_offset = Some(TimeVal::Milliseconds(Rational::new(val, 1)));
                 }
+            }
+        } else if m == ".reverse" {
+            reverse = true;
+        } else if m.starts_with(".accelerate(") && m.ends_with(")") {
+            let inner = &m[12..m.len()-1];
+            if let Ok(val) = inner.parse::<i64>() {
+                accelerate = Some(Rational::new(val, 1));
             }
         }
     }
-    None
+    (physical_offset, reverse, accelerate)
 }
+
+use crate::cursor::Cursor;
 
 pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
     let mut events = Vec::new();
     
     let mut voice_time: HashMap<(String, String), Rational> = HashMap::new();
-    let mut voice_octave: HashMap<(String, String), u8> = HashMap::new();
-    let mut voice_duration: HashMap<(String, String), Rational> = HashMap::new();
-    let mut voice_velocity: HashMap<(String, String), u8> = HashMap::new();
+    let mut voice_cursors: HashMap<(String, String), Cursor> = HashMap::new();
     
     for measure in ast.measures {
         for part in measure.parts {
@@ -252,20 +262,18 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                 let key = (part.id.clone(), voice.id.clone());
                 
                 let mut current_time = *voice_time.get(&key).unwrap_or(&Rational::new(0, 1));
-                let mut last_octave = *voice_octave.get(&key).unwrap_or(&4);
-                let mut last_duration = *voice_duration.get(&key).unwrap_or(&Rational::new(1, 4));
-                let mut last_velocity = *voice_velocity.get(&key).unwrap_or(&100);
+                let mut cursor = voice_cursors.get(&key).cloned().unwrap_or_else(|| Cursor::new());
                 
                 for event in voice.events {
                     match event {
                         crate::ast::Event::Note(pitch, dur_opt, mods) => {
-                            let dur = dur_opt.map(|d| parse_duration(&d)).unwrap_or(last_duration);
-                            last_duration = dur;
+                            let dur = dur_opt.map(|d| parse_duration(&d)).unwrap_or(cursor.last_duration);
+                            cursor.last_duration = dur;
                             
-                            let (spelling, midi, new_octave) = parse_pitch(&pitch, last_octave);
-                            last_octave = new_octave;
+                            let (spelling, midi, new_octave) = parse_pitch(&pitch, cursor.last_octave as u8);
+                            cursor.last_octave = new_octave as i8;
                             
-                            let physical_offset = parse_modifiers(&mods);
+                            let (physical_offset, _reverse, accelerate) = parse_modifiers(&mods);
                             
                             events.push(TimelineNode {
                                 track_id: part.id.clone(),
@@ -275,23 +283,23 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                 logical_time: current_time,
                                 logical_duration: dur,
                                 physical_offset,
-                                kind: EventKind::Note { spelling, pitch_midi: midi, velocity: last_velocity },
+                                kind: EventKind::Note { spelling, pitch_midi: midi, velocity: cursor.last_velocity },
                                 lyric: None,
                                 lyric_extension: LyricExtension::None,
-                                synth_accelerate_semitones: None,
+                                synth_accelerate_semitones: accelerate,
                             });
                             
                             current_time = current_time + dur;
                         }
                         crate::ast::Event::Chord(pitches, dur_opt, mods) => {
-                            let dur = dur_opt.map(|d| parse_duration(&d)).unwrap_or(last_duration);
-                            last_duration = dur;
+                            let dur = dur_opt.map(|d| parse_duration(&d)).unwrap_or(cursor.last_duration);
+                            cursor.last_duration = dur;
                             
-                            let physical_offset = parse_modifiers(&mods);
+                            let (physical_offset, _reverse, accelerate) = parse_modifiers(&mods);
                             
                             for pitch in pitches {
-                                let (spelling, midi, new_octave) = parse_pitch(&pitch, last_octave);
-                                last_octave = new_octave;
+                                let (spelling, midi, new_octave) = parse_pitch(&pitch, cursor.last_octave as u8);
+                                cursor.last_octave = new_octave as i8;
                                 
                                 events.push(TimelineNode {
                                     track_id: part.id.clone(),
@@ -301,18 +309,18 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                     logical_time: current_time,
                                     logical_duration: dur,
                                     physical_offset: physical_offset.clone(),
-                                    kind: EventKind::Note { spelling, pitch_midi: midi, velocity: last_velocity },
+                                    kind: EventKind::Note { spelling, pitch_midi: midi, velocity: cursor.last_velocity },
                                     lyric: None,
                                     lyric_extension: LyricExtension::None,
-                                    synth_accelerate_semitones: None,
+                                    synth_accelerate_semitones: accelerate,
                                 });
                             }
                             
                             current_time = current_time + dur;
                         }
                         crate::ast::Event::Rest(dur_opt) => {
-                            let dur = dur_opt.map(|d| parse_duration(&d)).unwrap_or(last_duration);
-                            last_duration = dur;
+                            let dur = dur_opt.map(|d| parse_duration(&d)).unwrap_or(cursor.last_duration);
+                            cursor.last_duration = dur;
                             
                             events.push(TimelineNode {
                                 track_id: part.id.clone(),
@@ -331,8 +339,8 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                             current_time = current_time + dur;
                         }
                         crate::ast::Event::Spacer(dur_opt, _) => {
-                            let dur = dur_opt.map(|d| parse_duration(&d)).unwrap_or(last_duration);
-                            last_duration = dur;
+                            let dur = dur_opt.map(|d| parse_duration(&d)).unwrap_or(cursor.last_duration);
+                            cursor.last_duration = dur;
                             
                             events.push(TimelineNode {
                                 track_id: part.id.clone(),
@@ -350,14 +358,99 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                             
                             current_time = current_time + dur;
                         }
-                        _ => {}
+                        crate::ast::Event::Euclidean(pitch, k, n) => {
+                            let dur = cursor.last_duration;
+                            let slot_dur = dur / Rational::new(n as i64, 1);
+                            
+                            let (spelling, midi, new_octave) = parse_pitch(&pitch, cursor.last_octave as u8);
+                            cursor.last_octave = new_octave as i8;
+                            
+                            let pattern = crate::euclidean::euclidean(*k, *n);
+                            
+                            for (i, hit) in pattern.iter().enumerate() {
+                                if *hit {
+                                    events.push(TimelineNode {
+                                        track_id: part.id.clone(),
+                                        track_style: "default".to_string(),
+                                        track_patch: "default".to_string(),
+                                        track_cut_group: None,
+                                        logical_time: current_time + (slot_dur * Rational::new(i as i64, 1)),
+                                        logical_duration: slot_dur,
+                                        physical_offset: None,
+                                        kind: EventKind::Note { spelling: spelling.clone(), pitch_midi: midi, velocity: cursor.last_velocity },
+                                        lyric: None,
+                                        lyric_extension: LyricExtension::None,
+                                        synth_accelerate_semitones: None,
+                                    });
+                                }
+                            }
+                            current_time = current_time + dur;
+                        }
+                        crate::ast::Event::MacroCall(invocation) => {
+                            // MacroCall is not yet implemented in IR
+                        }
+                        crate::ast::Event::Tuplet(events_in_tuplet, ratio) => {
+                            let total_dur = cursor.last_duration;
+                            let tuplet_factor = Rational::new(ratio.den as i64, ratio.num as i64);
+                            
+                            for event in events_in_tuplet {
+                                match event {
+                                    crate::ast::Event::Note(pitch, dur_opt, mods) => {
+                                        let base_dur = dur_opt.as_ref().map(|d| parse_duration(d)).unwrap_or(cursor.last_duration);
+                                        let dur = base_dur * tuplet_factor;
+                                        cursor.last_duration = base_dur; // Keep base duration for next event
+                                        
+                                        let (spelling, midi, new_octave) = parse_pitch(pitch, cursor.last_octave as u8);
+                                        cursor.last_octave = new_octave as i8;
+                                        
+                                        let (physical_offset, _reverse, accelerate) = parse_modifiers(mods);
+                                        
+                                        events.push(TimelineNode {
+                                            track_id: part.id.clone(),
+                                            track_style: "default".to_string(),
+                                            track_patch: "default".to_string(),
+                                            track_cut_group: None,
+                                            logical_time: current_time,
+                                            logical_duration: dur,
+                                            physical_offset,
+                                            kind: EventKind::Note { spelling, pitch_midi: midi, velocity: cursor.last_velocity },
+                                            lyric: None,
+                                            lyric_extension: LyricExtension::None,
+                                            synth_accelerate_semitones: accelerate,
+                                        });
+                                        
+                                        current_time = current_time + dur;
+                                    }
+                                    crate::ast::Event::Rest(dur_opt) => {
+                                        let base_dur = dur_opt.as_ref().map(|d| parse_duration(d)).unwrap_or(cursor.last_duration);
+                                        let dur = base_dur * tuplet_factor;
+                                        cursor.last_duration = base_dur;
+                                        
+                                        events.push(TimelineNode {
+                                            track_id: part.id.clone(),
+                                            track_style: "default".to_string(),
+                                            track_patch: "default".to_string(),
+                                            track_cut_group: None,
+                                            logical_time: current_time,
+                                            logical_duration: dur,
+                                            physical_offset: None,
+                                            kind: EventKind::Rest,
+                                            lyric: None,
+                                            lyric_extension: LyricExtension::None,
+                                            synth_accelerate_semitones: None,
+                                        });
+                                        
+                                        current_time = current_time + dur;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
                     }
                 }
                 
                 voice_time.insert(key.clone(), current_time);
-                voice_octave.insert(key.clone(), last_octave);
-                voice_duration.insert(key.clone(), last_duration);
-                voice_velocity.insert(key, last_velocity);
+                voice_cursors.insert(key.clone(), cursor);
             }
         }
     }
