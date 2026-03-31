@@ -1,3 +1,16 @@
+sustainability "tenuto_compiler" "3.0.1" {
+  mission: "Build a deterministic, sovereign audio compiler that unifies sheet music and DSP."
+  sponsors: []   # add sponsors as they appear
+  roadmap: [
+    { milestone: "Concrete Audio Engine", date: "2026-04-30", funding_required: 5000 },
+    { milestone: "Sidechain Ducking", date: "2026-05-15", funding_required: 3000 },
+    { milestone: "MusicXML Export", date: "2026-06-01", funding_required: 2000 },
+    { milestone: "Full SVG Engraving", date: "2026-06-30", funding_required: 4000 },
+    { milestone: "Decompilation (Reverse Inference)", date: "2026-07-31", funding_required: 10000 }
+  ]
+  license: "MIT OR Commercial"
+}
+
 domain "tenuto_compiler" "3.0.1" {
   meta @{
     name: "Remaining Features for Tenuto 3.0",
@@ -11,19 +24,6 @@ domain "tenuto_compiler" "3.0.1" {
       This sprint captures the remaining features to complete Tenuto 3.0.
       The sustainability block below tracks funding and roadmap milestones.
     """
-  }
-
-  sustainability "tenuto_compiler" "3.0.1" {
-    mission: "Build a deterministic, sovereign audio compiler that unifies sheet music and DSP."
-    sponsors: []   # add sponsors as they appear
-    roadmap: [
-      { milestone: "Concrete Audio Engine", date: "2026-04-30", funding_required: 5000 },
-      { milestone: "Sidechain Ducking", date: "2026-05-15", funding_required: 3000 },
-      { milestone: "MusicXML Export", date: "2026-06-01", funding_required: 2000 },
-      { milestone: "Full SVG Engraving", date: "2026-06-30", funding_required: 4000 },
-      { milestone: "Decompilation (Reverse Inference)", date: "2026-07-31", funding_required: 10000 }
-    ]
-    license: "MIT OR Commercial"
   }
 
   feature "engine:concrete_audio" {
