@@ -28,12 +28,12 @@ jobs:
       - name: Run telac sustain
         id: sustain
         run: |
-          REPORT=$(telac sustain .)
+          REPORT=$(telac sustain sprint_tenuto_remaining.tela)
           echo "REPORT<<EOF" >> $GITHUB_OUTPUT
           echo "$REPORT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           
-          if echo "$REPORT" | grep -q "⚠️ Funding gap detected"; then
+          if echo "$REPORT" | grep -q "Funding Required"; then
             echo "GAP_DETECTED=true" >> $GITHUB_OUTPUT
           else
             echo "GAP_DETECTED=false" >> $GITHUB_OUTPUT
@@ -45,7 +45,7 @@ jobs:
         with:
           script: |
             const report = `${{ steps.sustain.outputs.REPORT }}`;
-            const title = '⚠️ Funding milestone approaching';
+            const title = '⚠️ Funding gap detected';
             
             const issues = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
