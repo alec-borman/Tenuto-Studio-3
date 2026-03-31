@@ -410,7 +410,7 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                             let (spelling, midi, new_octave) = parse_pitch(&pitch, cursor.last_octave as u8);
                             cursor.last_octave = new_octave as i8;
                             
-                            let pattern = crate::euclidean::euclidean(*k, *n);
+                            let pattern = crate::euclidean::euclidean(k, n);
                             
                             let track_style = defs_map.get(&part.id).map(|d| d.style.clone()).unwrap_or_else(|| "default".to_string());
                             let track_patch = defs_map.get(&part.id).map(|d| d.patch.clone()).unwrap_or_else(|| "default".to_string());
@@ -462,10 +462,10 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                         let dur = base_dur * tuplet_factor;
                                         cursor.last_duration = base_dur; // Keep base duration for next event
                                         
-                                        let (spelling, midi, new_octave) = parse_pitch(pitch, cursor.last_octave as u8);
+                                        let (spelling, midi, new_octave) = parse_pitch(&pitch, cursor.last_octave as u8);
                                         cursor.last_octave = new_octave as i8;
                                         
-                                        let (physical_offset, _reverse, accelerate) = parse_modifiers(mods);
+                                        let (physical_offset, _reverse, accelerate) = parse_modifiers(&mods);
                                         
                                         let track_style = defs_map.get(&part.id).map(|d| d.style.clone()).unwrap_or_else(|| "default".to_string());
                                         let track_patch = defs_map.get(&part.id).map(|d| d.patch.clone()).unwrap_or_else(|| "default".to_string());
