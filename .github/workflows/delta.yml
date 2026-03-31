@@ -28,22 +28,58 @@ jobs:
           cargo build --release
           echo "$(pwd)/target/release" >> $GITHUB_PATH
 
-      - name: Compute Delta
+      - name: Extract Vectors
         run: |
-          # telac delta <codebase> <blueprint>
-          telac delta . ${{ env.TARGET_FILE }} > delta_report.txt
-          cat delta_report.txt
+          telac code-vector . > current_vector.json
+          telac build ${{ env.TARGET_FILE }} > target_vector.json
+
+      - name: Compute Similarity
+        id: compute
+        run: |
+          python3 -c "
+          import json, math, os
+          
+          def load_vec(f):
+              with open(f) as file:
+                  data = json.load(file)
+                  if 'centroid' in data:
+                      return data['centroid']
+                  if isinstance(data, list):
+                      return data
+                  return []
+          
+          v1 = load_vec('current_vector.json')
+          v2 = load_vec('target_vector.json')
+          
+          if not v1 or not v2 or len(v1) != len(v2):
+              print('Error loading vectors or length mismatch')
+              exit(1)
+              
+          dot = sum(a*b for a,b in zip(v1, v2))
+          mag1 = math.sqrt(sum(a*a for a in v1))
+          mag2 = math.sqrt(sum(b*b for b in v2))
+          
+          sim = dot / (mag1 * mag2) if mag1 * mag2 != 0 else 0
+          delta = 1.0 - sim
+          
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'similarity={sim:.4f}\n')
+              f.write(f'delta={delta:.4f}\n')
+          
+          print(f'Similarity: {sim:.4f}')
+          print(f'Delta: {delta:.4f}')
+          "
 
       - name: Post Comment on PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
-            const fs = require('fs');
-            const report = fs.readFileSync('delta_report.txt', 'utf8');
+            const similarity = '${{ steps.compute.outputs.similarity }}';
+            const delta = '${{ steps.compute.outputs.delta }}';
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `### Tela Delta Report\n\n\`\`\`\n${report}\n\`\`\``
+              body: `### Tela Delta Report\n\n**Similarity:** ${similarity}\n**Delta:** ${delta}`
             })
