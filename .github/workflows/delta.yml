@@ -42,8 +42,11 @@ jobs:
           def load_vec(f):
               with open(f) as file:
                   data = json.load(file)
-                  if 'centroid' in data:
-                      return data['centroid']
+                  if isinstance(data, dict):
+                      if 'vector' in data:
+                          return data['vector']
+                      if 'centroid' in data:
+                          return data['centroid']
                   if isinstance(data, list):
                       return data
                   return []
@@ -51,8 +54,8 @@ jobs:
           v1 = load_vec('current_vector.json')
           v2 = load_vec('target_vector.json')
           
-          if not v1 or not v2 or len(v1) != len(v2):
-              print('Error loading vectors or length mismatch')
+          if not v1 or not v2 or len(v1) != 1024 or len(v2) != 1024:
+              print('Error loading vectors or length mismatch (must be 1024)')
               exit(1)
               
           dot = sum(a*b for a,b in zip(v1, v2))
