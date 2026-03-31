@@ -1,0 +1,60 @@
+domain "tenuto_compiler" "3.0.1" {
+  meta @{
+    name: "Remaining Tenuto 3.0 Features",
+    sprint_id: "TENUTO-REMAINING-ALL",
+    author: "Architect",
+    recipient: "Tenuto Developer AI",
+    baseline_centroid: "be869f2880ef306fae8dce9a84dc32bffaeccb14ab39d54e57418eaaf6cf37c6",
+    target_similarity: 0.98,
+    dimensions: 1024
+  }
+
+  feature "engine:concrete_audio" {
+    weight: 1.0,
+    target: "src/ir.rs",
+    description: "Implement concrete audio sampling and slicing.",
+    requirements: [
+      "Map raw audio buffers to alphanumeric keys.",
+      "Support granular slicing and time-stretching."
+    ],
+    dimension_contributions: {
+      "arch:audio_fidelity": 1.0,
+      "arch:determinism": 0.9
+    }
+  }
+
+  feature "engine:sidechain_ducking" {
+    weight: 0.8,
+    target: "src/ir.rs",
+    description: "Implement sidechain ducking routing.",
+    requirements: [
+      "Support routing audio signals for sidechain compression."
+    ],
+    dimension_contributions: {
+      "arch:audio_fidelity": 0.9,
+      "arch:determinism": 0.9
+    }
+  }
+
+  feature "export:musicxml" {
+    weight: 1.0,
+    target: "src/emitter.rs",
+    description: "Export IR to MusicXML.",
+    requirements: [
+      "Generate valid MusicXML from the Timeline IR."
+    ],
+    dimension_contributions: {
+      "arch:interoperability": 1.0,
+      "arch:determinism": 1.0
+    }
+  }
+
+  deterministic "verify_remaining_features" {
+    input: [ "src/ir.rs", "src/emitter.rs" ],
+    steps: [
+      { assert: "Concrete audio and sidechain ducking are fully implemented in IR." },
+      { assert: "MusicXML export is implemented in emitter." }
+    ],
+    threshold: 0.02
+  }
+}

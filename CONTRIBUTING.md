@@ -26,6 +26,15 @@ When you submit a PR, the core maintainers will run your code through our intern
 2.  **Vector Delta ($\Delta$) Alignment:** We check if your code aligns with the mathematical gravity of the Tenuto architecture.
 3.  **Merge or Refactor:** If it aligns, your PR is merged! If it introduces an architectural regression (a massive Vector Delta spike), the core team will work with you to refactor it.
 
+## The Teleportation Workflow
+
+Tenuto is developed using the **Teleportation Protocol**. All contributions must be accompanied by a `.tela` sprint file that defines the geometric intent of your changes.
+
+1. **Create a Sprint File:** Define your feature in a `.tela` file (e.g., `sprint_my_feature.tela`), specifying the target files, requirements, and dimension contributions.
+2. **Implement the Code:** Write the Rust or TypeScript code to fulfill the intent.
+3. **Run Tests:** Ensure all code passes with `cargo test`.
+4. **Check the Delta:** We use CI delta tracking via GitHub Actions. Your pull request will automatically be evaluated by `telac`. To be merged, your code must achieve a vector delta of `<= 0.02` against the target blueprint.
+
 ## Conformance Profiles & The Golden Rule of Parsing
 
 To foster a modular open-source ecosystem, Tenuto 3.0 defines three progressive **Conformance Profiles**. When contributing to a specific backend or renderer, please be aware of its target profile:

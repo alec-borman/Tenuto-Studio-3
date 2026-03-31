@@ -3,6 +3,9 @@
   <p><b>The Definitive System of Record for Music</b></p>
   <p><i>A CRM, but for Musical Intent</i></p>
   <br/>
+  <p>
+    <a href="https://github.com/tenuto/tenuto-studio-3/actions"><img src="https://github.com/tenuto/tenuto-studio-3/actions/workflows/delta.yml/badge.svg" alt="Tests"></a>
+  </p>
 </div>
 
 ---
@@ -63,8 +66,12 @@ cargo install wasm-pack
 git clone https://github.com/tenuto/tenuto-studio-3.git
 cd tenuto-studio-3
 
-# 5. Install dependencies and build the Wasm compiler
+# 5. Install dependencies, build the Wasm compiler, and run tests
 npm install
+cd tenutoc
+cargo build
+cargo test
+cd ..
 npm run dev:all
 ```
 
@@ -84,8 +91,12 @@ cargo install wasm-pack
 git clone https://github.com/tenuto/tenuto-studio-3.git
 cd tenuto-studio-3
 
-# 5. Install dependencies and build the Wasm compiler
+# 5. Install dependencies, build the Wasm compiler, and run tests
 npm install
+cd tenutoc
+cargo build
+cargo test
+cd ..
 npm run dev:all
 ```
 
@@ -106,8 +117,12 @@ cargo install wasm-pack
 git clone https://github.com/tenuto/tenuto-studio-3.git
 cd tenuto-studio-3
 
-# 5. Install dependencies and build the Wasm compiler
+# 5. Install dependencies, build the Wasm compiler, and run tests
 npm install
+cd tenutoc
+cargo build
+cargo test
+cd ..
 npm run dev:all
 ```
 
@@ -120,19 +135,19 @@ Once the development server is running, open `http://localhost:3000` in your bro
 3. **Play:** Click the "Play" button to render the JSON Intermediate Representation (IR) through the browser's WebAudio API (Tone.js/smplr).
 4. **Export:** Download the generated MIDI 1.0 file or view the raw AST/IR payloads.
 
-## ⚡ Current Capabilities vs. Limitations
+## 📊 Current Status
 
-**What you CAN do right now:**
-*   Write and parse strict LL(1) Tenuto 3.0 grammar.
-*   Compile Tenuto code deterministically into a 1024-dimension IR.
-*   Emit perfect MIDI 1.0 files with Rational-to-Tick time conversion.
-*   Emit JSON payloads for WebAudio playback.
-*   Embed the `<tenuto-score>` Web Component in any vanilla HTML page.
+The Tenuto compiler core is stable and all tests pass. Implemented features include:
+*   **Rational Timeline:** Deterministic absolute time accumulation (`src/timeline.rs`).
+*   **Stateful Cursor:** Tracks octave, duration, and velocity per voice (`src/cursor.rs`).
+*   **Euclidean Rhythms:** Algorithmic beat generation (`src/euclidean.rs`).
+*   **Spelling Engine & Lexer:** Fully tested and compliant.
 
-**What you CAN'T do (Yet):**
-*   **Full SVG Engraving:** The visual sheet music rendering is currently a placeholder.
-*   **Advanced DSP Rendering:** While `.slice(8)` and `.glide(150ms)` are parsed and embedded into the IR, the frontend WebAudio engine does not yet fully render granular synthesis or phase-vocoding.
-*   **Decompilation:** Converting raw MIDI files *back* into semantic Tenuto code is currently stubbed.
+For remaining work, see our [ROADMAP.md](ROADMAP.md) and the [Tenuto 3.0 Specification](https://github.com/tenuto/tenuto-studio-3/wiki/Tenuto-3.0-Spec).
+
+## 🤝 Contributing & CI Delta Tracking
+
+Tenuto uses the **Teleportation Protocol** for development. All contributions must be accompanied by a `.tela` sprint file. Our GitHub Actions CI automatically computes the **Vector Delta** between your code and the target blueprint. Pull requests must achieve a delta of `<= 0.02` to be merged. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## 🌍 Portability & Cross-Device Execution
 
