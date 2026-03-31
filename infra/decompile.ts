@@ -27,7 +27,7 @@ async function main() {
 
     console.log(`[TEDP Decompiler] Loading Wasm decompiler...`);
     // @ts-ignore
-    const wasmModule = await import('../public/pkg/tenutoc.js');
+    const wasmModule = await import(/* @vite-ignore */ '../public/pkg/tenutoc.js');
     await wasmModule.default();
 
     if (typeof wasmModule.decompile_midi_to_tenuto !== 'function') {

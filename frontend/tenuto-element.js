@@ -1,5 +1,3 @@
-import init, { compile_tenuto_json } from '../public/pkg/tenutoc.js';
-
 class TenutoScore extends HTMLElement {
   constructor() {
     super();
@@ -7,10 +5,18 @@ class TenutoScore extends HTMLElement {
   }
 
   async connectedCallback() {
+    let compile_tenuto_json;
     try {
-      // Initialize the Wasm module
-      await init();
-      
+      // @ts-ignore
+      const wasm = await import(/* @vite-ignore */ '/pkg/tenutoc.js');
+      await wasm.default();
+      compile_tenuto_json = wasm.compile_tenuto_json;
+    } catch (e) {
+      console.warn('[TenutoScore] Wasm module missing at /pkg/tenutoc.js. Using mock fallback.');
+      compile_tenuto_json = () => ({ ir: [], errors: [] });
+    }
+
+    try {
       // Extract the raw Tenuto text
       let sourceText = '';
       const src = this.getAttribute('src');

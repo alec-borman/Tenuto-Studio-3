@@ -1,12 +1,20 @@
-import init, { compile_tenuto_to_midi, compile_tenuto_to_svg, decompile_midi_to_tenuto, alloc_buffer, free_buffer, decompile_midi_zero_copy } from './pkg/tenutoc.js';
-
 let isWasmLoaded = false;
 let wasmMemory = null;
+let compile_tenuto_to_midi, compile_tenuto_to_svg, decompile_midi_to_tenuto, alloc_buffer, free_buffer, decompile_midi_zero_copy;
 
 async function bootCompiler() {
     try {
         const startTime = performance.now();
-        const wasm = await init(); 
+        const wasmModule = await import(/* @vite-ignore */ './pkg/tenutoc.js');
+        const wasm = await wasmModule.default(); 
+        
+        compile_tenuto_to_midi = wasmModule.compile_tenuto_to_midi;
+        compile_tenuto_to_svg = wasmModule.compile_tenuto_to_svg;
+        decompile_midi_to_tenuto = wasmModule.decompile_midi_to_tenuto;
+        alloc_buffer = wasmModule.alloc_buffer;
+        free_buffer = wasmModule.free_buffer;
+        decompile_midi_zero_copy = wasmModule.decompile_midi_zero_copy;
+
         if (wasm && wasm.memory) {
             wasmMemory = wasm.memory;
         }

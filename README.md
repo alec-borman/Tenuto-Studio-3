@@ -43,6 +43,8 @@ As your symphony scales to 50,000+ lines of code, Tenuto scales with you. The ec
 
 Tenuto Studio runs locally as a Vite + React application, powered by a Rust WebAssembly compiler.
 
+**Critical:** You must run `npm run build:wasm` before starting the development server with `npm run dev`.
+
 ### Prerequisites (All Platforms)
 1. **Node.js** (v18 or higher)
 2. **Rust & Cargo** (latest stable)

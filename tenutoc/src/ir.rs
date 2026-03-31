@@ -84,8 +84,8 @@ pub struct ConcreteParams {
     pub slice_start: Rational,
     pub slice_end: Rational,
     pub reverse: bool,
+    pub chop_size: Option<u32>,
     pub stretch_factor: Option<Rational>,
-    pub chop_size: Option<Rational>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -218,12 +218,12 @@ fn parse_pitch(pitch: &str, last_octave: u8) -> (Spelling, u8, u8) {
     (spelling, midi, octave)
 }
 
-fn parse_modifiers(mods: &[String]) -> (Option<TimeVal>, bool, Option<Rational>, Option<Rational>, Option<Rational>) {
+fn parse_modifiers(mods: &[String]) -> (Option<TimeVal>, bool, Option<Rational>, Option<u32>, Option<Rational>) {
     let mut physical_offset = None;
     let mut reverse = false;
     let mut accelerate = None;
-    let mut stretch = None;
-    let mut chop = None;
+    let mut chop_size = None;
+    let mut stretch_factor = None;
 
     for m in mods {
         if m.starts_with(".pull(") && m.ends_with(")") {
@@ -247,19 +247,19 @@ fn parse_modifiers(mods: &[String]) -> (Option<TimeVal>, bool, Option<Rational>,
             if let Ok(val) = inner.parse::<i64>() {
                 accelerate = Some(Rational::new(val, 1));
             }
-        } else if m.starts_with(".stretch(") && m.ends_with(")") {
-            let inner = &m[9..m.len()-1];
-            if let Ok(f) = inner.parse::<f64>() {
-                stretch = Some(Rational::new((f * 1000.0).round() as i64, 1000));
-            }
         } else if m.starts_with(".chop(") && m.ends_with(")") {
             let inner = &m[6..m.len()-1];
-            if let Ok(s) = inner.parse::<f64>() {
-                chop = Some(Rational::new((s * 1000.0).round() as i64, 1000));
+            if let Ok(val) = inner.parse::<u32>() {
+                chop_size = Some(val);
+            }
+        } else if m.starts_with(".stretch(") && m.ends_with(")") {
+            let inner = &m[9..m.len()-1];
+            if let Ok(val) = inner.parse::<i64>() {
+                stretch_factor = Some(Rational::new(val, 1));
             }
         }
     }
-    (physical_offset, reverse, accelerate, stretch, chop)
+    (physical_offset, reverse, accelerate, chop_size, stretch_factor)
 }
 
 use crate::cursor::Cursor;
@@ -268,13 +268,7 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
     let mut events = Vec::new();
     
     let mut defs_map = HashMap::new();
-    let mut concrete_instruments = HashMap::new();
     for def in ast.defs {
-        if def.style == "concrete" {
-            if let Some(inst) = crate::concrete::ConcreteInstrument::from_def(&def) {
-                concrete_instruments.insert(def.id.clone(), inst);
-            }
-        }
         defs_map.insert(def.id.clone(), def);
     }
     
@@ -298,61 +292,40 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                             let (spelling, midi, new_octave) = parse_pitch(&pitch, cursor.last_octave as u8);
                             cursor.last_octave = new_octave as i8;
                             
-                            let (physical_offset, _reverse, accelerate, stretch, chop) = parse_modifiers(&mods);
+                            let (physical_offset, _reverse, accelerate, _chop, _stretch) = parse_modifiers(&mods);
                             
                             let track_style = defs_map.get(&part.id).map(|d| d.style.clone()).unwrap_or_else(|| "default".to_string());
                             let track_patch = defs_map.get(&part.id).map(|d| d.patch.clone()).unwrap_or_else(|| "default".to_string());
                             
-                            if let Some(inst) = concrete_instruments.get(&part.id) {
-                                let concrete_events = inst.process_event(&pitch, dur, &mods);
-                                let mut event_time = current_time;
-                                for (kind, slice_dur) in concrete_events {
-                                    events.push(TimelineNode {
-                                        track_id: part.id.clone(),
-                                        track_style: track_style.clone(),
-                                        track_patch: track_patch.clone(),
-                                        track_cut_group: None,
-                                        logical_time: event_time,
-                                        logical_duration: slice_dur,
-                                        physical_offset: physical_offset.clone(),
-                                        kind,
-                                        lyric: None,
-                                        lyric_extension: LyricExtension::None,
-                                        synth_accelerate_semitones: accelerate,
-                                    });
-                                    event_time = event_time + slice_dur;
+                            let kind = if track_patch == "engine:concrete_audio" {
+                                EventKind::Concrete {
+                                    id: part.id.clone(),
+                                    key: pitch.clone(),
+                                    params: ConcreteParams {
+                                        slice_start: Rational::new(0, 1),
+                                        slice_end: dur,
+                                        reverse: _reverse,
+                                        chop_size: _chop,
+                                        stretch_factor: _stretch,
+                                    }
                                 }
                             } else {
-                                let kind = if track_patch == "engine:concrete_audio" {
-                                    EventKind::Concrete {
-                                        id: part.id.clone(),
-                                        key: pitch.clone(),
-                                        params: ConcreteParams {
-                                            slice_start: Rational::new(0, 1),
-                                            slice_end: dur,
-                                            reverse: _reverse,
-                                            stretch_factor: stretch,
-                                            chop_size: chop,
-                                        }
-                                    }
-                                } else {
-                                    EventKind::Note { spelling, pitch_midi: midi, velocity: cursor.last_velocity }
-                                };
-                                
-                                events.push(TimelineNode {
-                                    track_id: part.id.clone(),
-                                    track_style,
-                                    track_patch,
-                                    track_cut_group: None,
-                                    logical_time: current_time,
-                                    logical_duration: dur,
-                                    physical_offset,
-                                    kind,
-                                    lyric: None,
-                                    lyric_extension: LyricExtension::None,
-                                    synth_accelerate_semitones: accelerate,
-                                });
-                            }
+                                EventKind::Note { spelling, pitch_midi: midi, velocity: cursor.last_velocity }
+                            };
+                            
+                            events.push(TimelineNode {
+                                track_id: part.id.clone(),
+                                track_style,
+                                track_patch,
+                                track_cut_group: None,
+                                logical_time: current_time,
+                                logical_duration: dur,
+                                physical_offset,
+                                kind,
+                                lyric: None,
+                                lyric_extension: LyricExtension::None,
+                                synth_accelerate_semitones: accelerate,
+                            });
                             
                             current_time = current_time + dur;
                         }
@@ -360,7 +333,7 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                             let dur = dur_opt.map(|d| parse_duration(&d)).unwrap_or(cursor.last_duration);
                             cursor.last_duration = dur;
                             
-                            let (physical_offset, _reverse, accelerate, stretch, chop) = parse_modifiers(&mods);
+                            let (physical_offset, _reverse, accelerate, _chop, _stretch) = parse_modifiers(&mods);
                             
                             let track_style = defs_map.get(&part.id).map(|d| d.style.clone()).unwrap_or_else(|| "default".to_string());
                             let track_patch = defs_map.get(&part.id).map(|d| d.patch.clone()).unwrap_or_else(|| "default".to_string());
@@ -369,56 +342,35 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                 let (spelling, midi, new_octave) = parse_pitch(&pitch, cursor.last_octave as u8);
                                 cursor.last_octave = new_octave as i8;
                                 
-                                if let Some(inst) = concrete_instruments.get(&part.id) {
-                                    let concrete_events = inst.process_event(&pitch, dur, &mods);
-                                    let mut event_time = current_time;
-                                    for (kind, slice_dur) in concrete_events {
-                                        events.push(TimelineNode {
-                                            track_id: part.id.clone(),
-                                            track_style: track_style.clone(),
-                                            track_patch: track_patch.clone(),
-                                            track_cut_group: None,
-                                            logical_time: event_time,
-                                            logical_duration: slice_dur,
-                                            physical_offset: physical_offset.clone(),
-                                            kind,
-                                            lyric: None,
-                                            lyric_extension: LyricExtension::None,
-                                            synth_accelerate_semitones: accelerate,
-                                        });
-                                        event_time = event_time + slice_dur;
+                                let kind = if track_patch == "engine:concrete_audio" {
+                                    EventKind::Concrete {
+                                        id: part.id.clone(),
+                                        key: pitch.clone(),
+                                        params: ConcreteParams {
+                                            slice_start: Rational::new(0, 1),
+                                            slice_end: dur,
+                                            reverse: _reverse,
+                                            chop_size: _chop,
+                                            stretch_factor: _stretch,
+                                        }
                                     }
                                 } else {
-                                    let kind = if track_patch == "engine:concrete_audio" {
-                                        EventKind::Concrete {
-                                            id: part.id.clone(),
-                                            key: pitch.clone(),
-                                            params: ConcreteParams {
-                                                slice_start: Rational::new(0, 1),
-                                                slice_end: dur,
-                                                reverse: _reverse,
-                                                stretch_factor: stretch,
-                                                chop_size: chop,
-                                            }
-                                        }
-                                    } else {
-                                        EventKind::Note { spelling, pitch_midi: midi, velocity: cursor.last_velocity }
-                                    };
-                                    
-                                    events.push(TimelineNode {
-                                        track_id: part.id.clone(),
-                                        track_style: track_style.clone(),
-                                        track_patch: track_patch.clone(),
-                                        track_cut_group: None,
-                                        logical_time: current_time,
-                                        logical_duration: dur,
-                                        physical_offset: physical_offset.clone(),
-                                        kind,
-                                        lyric: None,
-                                        lyric_extension: LyricExtension::None,
-                                        synth_accelerate_semitones: accelerate,
-                                    });
-                                }
+                                    EventKind::Note { spelling, pitch_midi: midi, velocity: cursor.last_velocity }
+                                };
+                                
+                                events.push(TimelineNode {
+                                    track_id: part.id.clone(),
+                                    track_style: track_style.clone(),
+                                    track_patch: track_patch.clone(),
+                                    track_cut_group: None,
+                                    logical_time: current_time,
+                                    logical_duration: dur,
+                                    physical_offset: physical_offset.clone(),
+                                    kind,
+                                    lyric: None,
+                                    lyric_extension: LyricExtension::None,
+                                    synth_accelerate_semitones: accelerate,
+                                });
                             }
                             
                             current_time = current_time + dur;
@@ -491,6 +443,8 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                                 slice_start: Rational::new(0, 1),
                                                 slice_end: slot_dur,
                                                 reverse: false,
+                                                chop_size: None,
+                                                stretch_factor: None,
                                             }
                                         }
                                     } else {
@@ -531,7 +485,7 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                         let (spelling, midi, new_octave) = parse_pitch(&pitch, cursor.last_octave as u8);
                                         cursor.last_octave = new_octave as i8;
                                         
-                                        let (physical_offset, _reverse, accelerate) = parse_modifiers(&mods);
+                                        let (physical_offset, _reverse, accelerate, _chop, _stretch) = parse_modifiers(&mods);
                                         
                                         let track_style = defs_map.get(&part.id).map(|d| d.style.clone()).unwrap_or_else(|| "default".to_string());
                                         let track_patch = defs_map.get(&part.id).map(|d| d.patch.clone()).unwrap_or_else(|| "default".to_string());
@@ -544,6 +498,8 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                                     slice_start: Rational::new(0, 1),
                                                     slice_end: dur,
                                                     reverse: _reverse,
+                                                    chop_size: _chop,
+                                                    stretch_factor: _stretch,
                                                 }
                                             }
                                         } else {
