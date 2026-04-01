@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 env:
-  TARGET_FILE: sprint_tenuto_remaining.tela
+  TARGET_FILE: tenuto_3_gold_master.tela
 
 jobs:
   delta:
