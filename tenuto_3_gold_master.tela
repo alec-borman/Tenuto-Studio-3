@@ -8,17 +8,13 @@ domain "tenuto_compiler_endgame" "3.0.1" {
   }
 
   feature "pillar_1:concrete_audio" { 
-    status: "PARTIAL"
     weight: 0.8
     target: "src/concrete.rs"
     description: "Sample-based audio handling, slicing, time-stretching, and granular chopping."
-    completed: ["ConcreteInstrument struct", "Def-phase map parsing"]
-    remaining: ["Wasm/Audio Backend Execution"]
     dimension_contributions: { "arch:determinism": 1.0, "arch:sovereignty": 1.0, "arch:performance": 0.7 }
   }
 
   feature "pillar_2:sidechain_ducking" { 
-    status: "AWAITING_EXECUTION"
     weight: 0.7
     target: "src/sidechain.rs"
     description: "Declarative sidechain compression and spacer-based CC curves."
@@ -26,7 +22,6 @@ domain "tenuto_compiler_endgame" "3.0.1" {
   }
 
   feature "pillar_3:musicxml_export" { 
-    status: "AWAITING_EXECUTION"
     weight: 0.8
     target: "src/export/musicxml.rs"
     description: "Export IR to MusicXML 4.0 with proper beaming, ties, and dynamics."
@@ -34,7 +29,6 @@ domain "tenuto_compiler_endgame" "3.0.1" {
   }
 
   feature "pillar_4:svg_engraving" { 
-    status: "AWAITING_EXECUTION"
     weight: 0.7
     target: "src/engrave/svg.rs"
     description: "Full SVG engraving (staff lines, noteheads, beams, dynamics) transitioning beyond the placeholder."
@@ -42,7 +36,6 @@ domain "tenuto_compiler_endgame" "3.0.1" {
   }
 
   feature "pillar_5:decompilation" { 
-    status: "AWAITING_EXECUTION"
     weight: 0.6
     target: "src/decompile.rs"
     description: "Reverse inference pipeline (Addendum D): import MusicXML/MIDI and produce idiomatic Tenuto code."
