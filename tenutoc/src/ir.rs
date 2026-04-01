@@ -125,6 +125,9 @@ pub struct TimelineNode {
     pub lyric: Option<String>,
     pub lyric_extension: LyricExtension,
     pub synth_accelerate_semitones: Option<Rational>,
+    pub pan: Option<String>,
+    pub orbit: Option<String>,
+    pub fx_chain: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -218,12 +221,26 @@ fn parse_pitch(pitch: &str, last_octave: u8) -> (Spelling, u8, u8) {
     (spelling, midi, octave)
 }
 
-fn parse_modifiers(mods: &[String]) -> (Option<TimeVal>, bool, Option<Rational>, Option<u32>, Option<Rational>) {
+pub struct ParsedModifiers {
+    pub physical_offset: Option<TimeVal>,
+    pub reverse: bool,
+    pub accelerate: Option<Rational>,
+    pub chop_size: Option<u32>,
+    pub stretch_factor: Option<Rational>,
+    pub pan: Option<String>,
+    pub orbit: Option<String>,
+    pub fx_chain: Vec<String>,
+}
+
+fn parse_modifiers(mods: &[String]) -> ParsedModifiers {
     let mut physical_offset = None;
     let mut reverse = false;
     let mut accelerate = None;
     let mut chop_size = None;
     let mut stretch_factor = None;
+    let mut pan = None;
+    let mut orbit = None;
+    let mut fx_chain = Vec::new();
 
     for m in mods {
         if m.starts_with(".pull(") && m.ends_with(")") {
@@ -257,9 +274,24 @@ fn parse_modifiers(mods: &[String]) -> (Option<TimeVal>, bool, Option<Rational>,
             if let Ok(val) = inner.parse::<i64>() {
                 stretch_factor = Some(Rational::new(val, 1));
             }
+        } else if m.starts_with(".pan(") && m.ends_with(")") {
+            pan = Some(m.clone());
+        } else if m.starts_with(".orbit(") && m.ends_with(")") {
+            orbit = Some(m.clone());
+        } else if m.starts_with(".fx(") && m.ends_with(")") {
+            fx_chain.push(m.clone());
         }
     }
-    (physical_offset, reverse, accelerate, chop_size, stretch_factor)
+    ParsedModifiers {
+        physical_offset,
+        reverse,
+        accelerate,
+        chop_size,
+        stretch_factor,
+        pan,
+        orbit,
+        fx_chain,
+    }
 }
 
 use crate::cursor::Cursor;
@@ -292,7 +324,7 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                             let (spelling, midi, new_octave) = parse_pitch(&pitch, cursor.last_octave as u8);
                             cursor.last_octave = new_octave as i8;
                             
-                            let (physical_offset, _reverse, accelerate, _chop, _stretch) = parse_modifiers(&mods);
+                            let pmods = parse_modifiers(&mods);
                             
                             let track_style = defs_map.get(&part.id).map(|d| d.style.clone()).unwrap_or_else(|| "default".to_string());
                             let track_patch = defs_map.get(&part.id).map(|d| d.patch.clone()).unwrap_or_else(|| "default".to_string());
@@ -304,9 +336,9 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                     params: ConcreteParams {
                                         slice_start: Rational::new(0, 1),
                                         slice_end: dur,
-                                        reverse: _reverse,
-                                        chop_size: _chop,
-                                        stretch_factor: _stretch,
+                                        reverse: pmods.reverse,
+                                        chop_size: pmods.chop_size,
+                                        stretch_factor: pmods.stretch_factor,
                                     }
                                 }
                             } else {
@@ -320,11 +352,14 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                 track_cut_group: None,
                                 logical_time: current_time,
                                 logical_duration: dur,
-                                physical_offset,
+                                physical_offset: pmods.physical_offset,
                                 kind,
                                 lyric: None,
                                 lyric_extension: LyricExtension::None,
-                                synth_accelerate_semitones: accelerate,
+                                synth_accelerate_semitones: pmods.accelerate,
+                                pan: pmods.pan,
+                                orbit: pmods.orbit,
+                                fx_chain: pmods.fx_chain,
                             });
                             
                             current_time = current_time + dur;
@@ -333,7 +368,7 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                             let dur = dur_opt.map(|d| parse_duration(&d)).unwrap_or(cursor.last_duration);
                             cursor.last_duration = dur;
                             
-                            let (physical_offset, _reverse, accelerate, _chop, _stretch) = parse_modifiers(&mods);
+                            let pmods = parse_modifiers(&mods);
                             
                             let track_style = defs_map.get(&part.id).map(|d| d.style.clone()).unwrap_or_else(|| "default".to_string());
                             let track_patch = defs_map.get(&part.id).map(|d| d.patch.clone()).unwrap_or_else(|| "default".to_string());
@@ -349,9 +384,9 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                         params: ConcreteParams {
                                             slice_start: Rational::new(0, 1),
                                             slice_end: dur,
-                                            reverse: _reverse,
-                                            chop_size: _chop,
-                                            stretch_factor: _stretch,
+                                            reverse: pmods.reverse,
+                                            chop_size: pmods.chop_size,
+                                            stretch_factor: pmods.stretch_factor,
                                         }
                                     }
                                 } else {
@@ -365,11 +400,14 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                     track_cut_group: None,
                                     logical_time: current_time,
                                     logical_duration: dur,
-                                    physical_offset: physical_offset.clone(),
+                                    physical_offset: pmods.physical_offset.clone(),
                                     kind,
                                     lyric: None,
                                     lyric_extension: LyricExtension::None,
-                                    synth_accelerate_semitones: accelerate,
+                                    synth_accelerate_semitones: pmods.accelerate,
+                                    pan: pmods.pan.clone(),
+                                    orbit: pmods.orbit.clone(),
+                                    fx_chain: pmods.fx_chain.clone(),
                                 });
                             }
                             
@@ -394,6 +432,9 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                 lyric: None,
                                 lyric_extension: LyricExtension::None,
                                 synth_accelerate_semitones: None,
+                                pan: None,
+                                orbit: None,
+                                fx_chain: Vec::new(),
                             });
                             
                             current_time = current_time + dur;
@@ -417,6 +458,9 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                 lyric: None,
                                 lyric_extension: LyricExtension::None,
                                 synth_accelerate_semitones: None,
+                                pan: None,
+                                orbit: None,
+                                fx_chain: Vec::new(),
                             });
                             
                             current_time = current_time + dur;
@@ -463,6 +507,9 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                         lyric: None,
                                         lyric_extension: LyricExtension::None,
                                         synth_accelerate_semitones: None,
+                                        pan: None,
+                                        orbit: None,
+                                        fx_chain: Vec::new(),
                                     });
                                 }
                             }
@@ -485,7 +532,7 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                         let (spelling, midi, new_octave) = parse_pitch(&pitch, cursor.last_octave as u8);
                                         cursor.last_octave = new_octave as i8;
                                         
-                                        let (physical_offset, _reverse, accelerate, _chop, _stretch) = parse_modifiers(&mods);
+                                        let pmods = parse_modifiers(&mods);
                                         
                                         let track_style = defs_map.get(&part.id).map(|d| d.style.clone()).unwrap_or_else(|| "default".to_string());
                                         let track_patch = defs_map.get(&part.id).map(|d| d.patch.clone()).unwrap_or_else(|| "default".to_string());
@@ -497,9 +544,9 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                                 params: ConcreteParams {
                                                     slice_start: Rational::new(0, 1),
                                                     slice_end: dur,
-                                                    reverse: _reverse,
-                                                    chop_size: _chop,
-                                                    stretch_factor: _stretch,
+                                                    reverse: pmods.reverse,
+                                                    chop_size: pmods.chop_size,
+                                                    stretch_factor: pmods.stretch_factor,
                                                 }
                                             }
                                         } else {
@@ -513,11 +560,14 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                             track_cut_group: None,
                                             logical_time: current_time,
                                             logical_duration: dur,
-                                            physical_offset,
+                                            physical_offset: pmods.physical_offset,
                                             kind,
                                             lyric: None,
                                             lyric_extension: LyricExtension::None,
-                                            synth_accelerate_semitones: accelerate,
+                                            synth_accelerate_semitones: pmods.accelerate,
+                                            pan: pmods.pan,
+                                            orbit: pmods.orbit,
+                                            fx_chain: pmods.fx_chain,
                                         });
                                         
                                         current_time = current_time + dur;
@@ -539,6 +589,9 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                                             lyric: None,
                                             lyric_extension: LyricExtension::None,
                                             synth_accelerate_semitones: None,
+                                            pan: None,
+                                            orbit: None,
+                                            fx_chain: Vec::new(),
                                         });
                                         
                                         current_time = current_time + dur;
