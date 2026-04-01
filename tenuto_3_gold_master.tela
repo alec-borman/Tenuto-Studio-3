@@ -1,7 +1,7 @@
 domain "tenuto_compiler_endgame" "3.0.1" { 
   meta @{ 
     name: "The Tenuto 3.0 Gold Master",
-    intent: "Systematically pour the remaining Rust steel to achieve full compliance with the Tenuto 3.0 Spec and collapse the Vector Delta to 0.00.",
+    description: "Systematically pour the remaining Rust steel to achieve full compliance with the Tenuto 3.0 Spec and collapse the Vector Delta to 0.00.",
     baseline_centroid: "be869f2880ef306fae8dce9a84dc32bffaeccb14ab39d54e57418eaaf6cf37c6",
     target_similarity: 1.0, 
     dimensions: 1024 
