@@ -6,6 +6,10 @@ on:
   schedule:
     - cron: '0 0 * * 1' # Weekly on Monday
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   sustain:
     runs-on: ubuntu-latest

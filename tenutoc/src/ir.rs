@@ -468,11 +468,11 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                             }
                             current_time = current_time + dur;
                         }
-                        crate::ast::Event::MacroCall(invocation) => {
+                        crate::ast::Event::MacroCall(_invocation) => {
                             // MacroCall is not yet implemented in IR
                         }
                         crate::ast::Event::Tuplet(events_in_tuplet, ratio) => {
-                            let total_dur = cursor.last_duration;
+                            let _total_dur = cursor.last_duration;
                             let tuplet_factor = Rational::new(ratio.den as i64, ratio.num as i64);
                             
                             for event in events_in_tuplet {

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Ast {
@@ -24,6 +24,7 @@ pub struct Definition {
     pub env: Option<HashMap<String, String>>,
     pub src: Option<String>,
     pub tuning: Option<Vec<i32>>,
+    pub map: Option<BTreeMap<String, Value>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -78,6 +79,13 @@ pub struct PolyphonicBlock {
 pub struct Rational {
     pub num: u32,
     pub den: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum Value {
+    Array(Vec<Rational>),
+    Scalar(Rational),
 }
 
 pub type PitchLit = String;
