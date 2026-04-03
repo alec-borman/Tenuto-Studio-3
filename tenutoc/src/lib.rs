@@ -11,13 +11,14 @@ pub mod ir;
 pub mod spelling;
 pub mod rebar;
 pub mod midi;
-pub mod xml;
+pub mod export;
 pub mod engrave;
 pub mod decompile;
 pub mod emitter;
 pub mod cursor;
 pub mod euclidean;
 pub mod concrete;
+pub mod sidechain;
 
 #[derive(Serialize, Deserialize)]
 pub struct WasmDiagnostic {

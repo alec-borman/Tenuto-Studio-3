@@ -1,15 +1,15 @@
-use tenutoc::xml::XmlEmitter;
+use tenutoc::export::musicxml::XmlEmitter;
 
 #[test]
 fn test_c_sharp_followed_by_c_natural() {
     let mut emitter = XmlEmitter::new(0); // C Major
     
     // C#4 (MIDI 61)
-    let xml1 = emitter.generate_note_xml(61);
+    let xml1 = emitter.generate_note_xml(61, 4, false, false, None, None);
     assert!(xml1.contains("<accidental>sharp</accidental>"));
     
     // C4 (MIDI 60)
-    let xml2 = emitter.generate_note_xml(60);
+    let xml2 = emitter.generate_note_xml(60, 4, false, false, None, None);
     assert!(xml2.contains("<accidental>natural</accidental>"));
 }
 
@@ -18,10 +18,10 @@ fn test_c_sharp_octave_isolation() {
     let mut emitter = XmlEmitter::new(0); // C Major
     
     // C#4 (MIDI 61)
-    let xml1 = emitter.generate_note_xml(61);
+    let xml1 = emitter.generate_note_xml(61, 4, false, false, None, None);
     assert!(xml1.contains("<accidental>sharp</accidental>"));
     
     // C#5 (MIDI 73)
-    let xml2 = emitter.generate_note_xml(73);
+    let xml2 = emitter.generate_note_xml(73, 4, false, false, None, None);
     assert!(xml2.contains("<accidental>sharp</accidental>"));
 }
