@@ -19,6 +19,8 @@ pub mod cursor;
 pub mod euclidean;
 pub mod concrete;
 pub mod sidechain;
+pub mod compiler;
+pub mod domains;
 
 #[derive(Serialize, Deserialize)]
 pub struct WasmDiagnostic {
