@@ -1,14 +1,14 @@
-name: Delta Tracking
+name: Gatekeeper CI
 
 on:
-  push:
+  pull_request:
     branches: [ main ]
 
 env:
   TARGET_FILE: tenuto_3_gold_master.tela
 
 jobs:
-  delta:
+  test-and-delta:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Tenuto
@@ -16,6 +16,15 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Run Wasm DSP Crucible (cargo test)
+        id: cargo_test
+        run: |
+          cargo test
+        continue-on-error: true
 
       - name: Clone Tela Repo
         run: git clone https://github.com/alec-borman/tela.git tela-repo
@@ -70,3 +79,23 @@ jobs:
           print(f'Similarity: {sim:.4f}')
           print(f'Delta: {delta:.4f}')
           "
+
+      - name: Post Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const similarity = '${{ steps.compute.outputs.similarity }}';
+            const delta = '${{ steps.compute.outputs.delta }}';
+            const testOutcome = '${{ steps.cargo_test.outcome }}';
+            const testStatus = testOutcome === 'success' ? '✅ PASS' : '❌ FAIL';
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### Gatekeeper CI Report\n\n**Tests:** ${testStatus}\n**Similarity:** ${similarity}\n**Delta:** ${delta}`
+            })
+
+      - name: Fail if tests failed
+        if: steps.cargo_test.outcome != 'success'
+        run: exit 1
