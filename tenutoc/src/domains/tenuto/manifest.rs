@@ -17,9 +17,8 @@ pub fn get_global_manifest() -> Manifest {
 }
 
 pub fn register_axes(axes: &mut Vec<Axis>) {
-    axes.push(Axis { name: "pillar_1:concrete_audio".to_string(), dimension: 100 });
-    axes.push(Axis { name: "pillar_2:sidechain_ducking".to_string(), dimension: 200 });
-    axes.push(Axis { name: "pillar_3:musicxml_export".to_string(), dimension: 300 });
-    axes.push(Axis { name: "pillar_4:svg_engraving".to_string(), dimension: 400 });
-    axes.push(Axis { name: "pillar_5:decompilation".to_string(), dimension: 500 });
+    axes.push(Axis { name: "arch:determinism".to_string(), dimension: 0 });
+    axes.push(Axis { name: "arch:ergonomics".to_string(), dimension: 3 });
+    axes.push(Axis { name: "arch:performance".to_string(), dimension: 6 });
+    axes.push(Axis { name: "arch:sovereignty".to_string(), dimension: 7 });
 }

@@ -25,24 +25,28 @@ impl Embedder {
     }
 
     fn traverse_concrete_params(&self, ast: &Ast, vector: &mut [f64]) {
-        // Map ConcreteParams to vector space
+        // Map ConcreteParams to vector space: determinism (0), sovereignty (7), performance (6)
         for def in &ast.defs {
             if def.style == "concrete" {
-                vector[100] += 1.0; // Structural dimension for concrete_audio
+                vector[0] += 1.0;
+                vector[7] += 1.0;
+                vector[6] += 0.7;
             }
         }
     }
 
     fn traverse_sidechain(&self, ast: &Ast, vector: &mut [f64]) {
-        // Map Sidechain to vector space
+        // Map Sidechain to vector space: performance (6), determinism (0)
         for measure in &ast.measures {
             for logic in &measure.logic {
                 match logic {
                     LogicNode::Assignment(id, _) if id.contains("sidechain") => {
-                        vector[200] += 1.0;
+                        vector[6] += 0.9;
+                        vector[0] += 0.9;
                     }
                     LogicNode::EventNode(Event::Spacer(_, mods)) if mods.iter().any(|m| m.contains("duck")) => {
-                        vector[200] += 1.0;
+                        vector[6] += 0.9;
+                        vector[0] += 0.9;
                     }
                     _ => {}
                 }
@@ -51,15 +55,19 @@ impl Embedder {
     }
 
     fn traverse_export(&self, ast: &Ast, vector: &mut [f64]) {
-        // Map Export to vector space based on metadata or specific nodes
+        // Map Export to vector space: sovereignty (7), ergonomics (3), determinism (0)
         if ast.meta.contains_key("export:musicxml") {
-            vector[300] += 1.0;
+            vector[7] += 1.0;
+            vector[3] += 0.8;
+            vector[0] += 1.0;
         }
         if ast.meta.contains_key("engrave:svg") {
-            vector[400] += 1.0;
+            vector[0] += 1.0;
+            vector[7] += 0.8;
         }
         if ast.meta.contains_key("decompile:source") {
-            vector[500] += 1.0;
+            vector[0] += 1.0;
+            vector[7] += 0.9;
         }
     }
 
