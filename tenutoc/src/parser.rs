@@ -16,13 +16,13 @@ fn modifier() -> impl Parser<Token, Modifier, Error = Simple<Token>> {
     })
     .then(just(Token::Symbol("(".to_string()))
         .ignore_then(filter_map(|span, tok| match tok {
-            Token::Symbol(s) if s == ")" => Err(Simple::expected_input_found(span, Vec::new(), Some(Token::Symbol(")".to_string())))),
             Token::String(s) => Ok(format!("\"{}\"", s)),
             Token::Identifier(s) => Ok(s),
             Token::Number(s) => Ok(s),
-            Token::Symbol(s) => Ok(s),
+            Token::TimeVal(s) => Ok(s),
+            Token::Symbol(s) if s != ")" && s != "," => Ok(s),
             _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
-        }).repeated())
+        }).separated_by(just(Token::Symbol(",".to_string()))))
         .then_ignore(just(Token::Symbol(")".to_string())))
         .or_not())
     .map(|(name, args)| {
@@ -168,11 +168,9 @@ fn part_parser() -> impl Parser<Token, Part, Error = Simple<Token>> {
 
     let single_voice = voice_parser().map(|v| vec![v]);
 
-    let multi_voice = just(Token::Symbol("<".to_string()))
-        .ignore_then(just(Token::Symbol("[".to_string())))
+    let multi_voice = just(Token::VoiceOpen)
         .ignore_then(voice_parser().separated_by(just(Token::Symbol("|".to_string()))))
-        .then_ignore(just(Token::Symbol("]".to_string())))
-        .then_ignore(just(Token::Symbol(">".to_string())));
+        .then_ignore(just(Token::VoiceClose));
 
     part_id.then(multi_voice.or(single_voice)).map(|(id, voices)| {
         Part {
@@ -322,8 +320,7 @@ pub fn parser() -> impl Parser<Token, Ast, Error = Simple<Token>> {
         _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
     });
 
-    let meta_value_map = just(Token::Symbol("@".to_string()))
-        .ignore_then(just(Token::Symbol("{".to_string())))
+    let meta_value_map = just(Token::MapOpen)
         .ignore_then(
             filter_map(|span, tok| match tok {
                 Token::Identifier(k) => Ok(k),
@@ -348,8 +345,7 @@ pub fn parser() -> impl Parser<Token, Ast, Error = Simple<Token>> {
     let meta_value = meta_value_string.or(meta_value_map);
 
     let meta_block = just(Token::Keyword("meta".to_string()))
-        .ignore_then(just(Token::Symbol("@".to_string())))
-        .ignore_then(just(Token::Symbol("{".to_string())))
+        .ignore_then(just(Token::MapOpen))
         .ignore_then(meta_entry.then(meta_value).repeated())
         .then_ignore(just(Token::Symbol("}".to_string())))
         .map(|entries| {
