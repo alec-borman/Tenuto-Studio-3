@@ -67,7 +67,7 @@ pub fn expand_concrete_events(
                             new_node.logical_duration = slice_dur;
                             
                             let mut new_params = params.clone();
-                            new_params.chop_size = None; 
+                            new_params.chop_size = Some(slices); 
                             
                             let slice_start_offset = sample_slice_dur * Rational::new(i as i64, 1);
                             let slice_end_offset = sample_slice_dur * Rational::new((i + 1) as i64, 1);

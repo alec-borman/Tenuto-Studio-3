@@ -6,7 +6,7 @@ pub struct Ast {
     pub version: String,
     pub imports: Vec<String>,
     pub vars: HashMap<String, String>,
-    pub meta: HashMap<String, String>,
+    pub meta: HashMap<String, serde_json::Value>,
     pub defs: Vec<Definition>,
     pub macros: Vec<MacroDef>,
     pub deterministics: Vec<String>,

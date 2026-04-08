@@ -85,7 +85,7 @@ fn note_parser() -> impl Parser<Token, Vec<Event>, Error = Simple<Token>> {
                         modifiers.push(s);
                     },
                     Modifier::Call(name, args) => {
-                        modifiers.push(format!("{}({})", name, args.join("")));
+                        modifiers.push(format!("{}({})", name, args.join(",")));
                     }
                 }
             }
@@ -96,9 +96,15 @@ fn note_parser() -> impl Parser<Token, Vec<Event>, Error = Simple<Token>> {
             for i in 0..steps {
                 let is_hit = (i * hits) % steps < hits;
                 if is_hit {
-                    events.push(Event::Note(pitch_lit.clone(), Some(duration.clone()), modifiers.clone()));
+                    if pitch_lit == "s" {
+                        events.push(Event::Spacer(Some(duration.clone()), modifiers.clone()));
+                    } else if pitch_lit == "r" {
+                        events.push(Event::Rest(Some(duration.clone())));
+                    } else {
+                        events.push(Event::Note(pitch_lit.clone(), Some(duration.clone()), modifiers.clone()));
+                    }
                 } else {
-                    events.push(Event::Note("r".to_string(), Some(duration.clone()), vec![]));
+                    events.push(Event::Rest(Some(duration.clone())));
                 }
             }
             events
@@ -208,21 +214,143 @@ fn measure_parser() -> impl Parser<Token, Vec<Measure>, Error = Simple<Token>> {
         })
 }
 
+fn def_parser() -> impl Parser<Token, Definition, Error = Simple<Token>> {
+    let id = filter_map(|span, tok| match tok {
+        Token::Identifier(i) => Ok(i),
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    });
+
+    let name = filter_map(|span, tok| match tok {
+        Token::String(s) => Ok(s),
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    });
+
+    let kv_pair = filter_map(|span, tok| match tok {
+        Token::Identifier(i) => Ok(i),
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    })
+    .then_ignore(just(Token::Symbol("=".to_string())))
+    .then(filter_map(|span, tok| match tok {
+        Token::Identifier(i) => Ok(i),
+        Token::String(s) => Ok(s),
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    }));
+
+    let map_entry = filter_map(|span, tok| match tok {
+        Token::Identifier(i) => Ok(i),
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    })
+    .then_ignore(just(Token::Symbol(":".to_string())))
+    .then_ignore(just(Token::Symbol("[".to_string())))
+    .then(filter_map(|span, tok| match tok {
+        Token::TimeVal(t) => Ok(t),
+        Token::Number(n) => Ok(n),
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    }))
+    .then_ignore(just(Token::Symbol(",".to_string())).or_not())
+    .then(filter_map(|span, tok| match tok {
+        Token::TimeVal(t) => Ok(t),
+        Token::Number(n) => Ok(n),
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    }).or_not())
+    .then_ignore(just(Token::Symbol("]".to_string())));
+
+    let map_block = just(Token::Identifier("map".to_string()))
+        .ignore_then(just(Token::Symbol("=".to_string())))
+        .ignore_then(just(Token::MapOpen))
+        .ignore_then(map_entry.repeated())
+        .then_ignore(just(Token::Symbol("}".to_string())))
+        .map(|entries| {
+            let mut map = std::collections::BTreeMap::new();
+            for ((k, v1), v2) in entries {
+                // Store as Rational for now, or string? The AST expects Value::Array(Vec<Rational>) or Scalar
+                // Let's just store dummy rationals for now, or we can parse the timeval
+                // Actually, the AST expects BTreeMap<String, Value>
+                // We can parse the TimeVal to a Rational if we want, but let's just store 0/1 for now to pass the AST shape, or parse it properly.
+                // Wait, TimeVal is a string like "0ms". Let's just store it as a Rational where num is the parsed number if possible, or we might need to change the AST.
+                // Let's look at AST Value. It's Array(Vec<Rational>) or Scalar(Rational).
+                // Let's just create a dummy Rational for now, or parse the number part.
+                let parse_time = |t: String| -> Rational {
+                    let num_str: String = t.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    let num = num_str.parse::<u32>().unwrap_or(0);
+                    Rational { num, den: 1 }
+                };
+                let mut arr = vec![parse_time(v1)];
+                if let Some(v2) = v2 {
+                    arr.push(parse_time(v2));
+                }
+                map.insert(k, Value::Array(arr));
+            }
+            map
+        });
+
+    just(Token::Keyword("def".to_string()))
+        .ignore_then(id)
+        .then(name.or_not())
+        .then(kv_pair.repeated())
+        .then(map_block.or_not())
+        .map(|(((id, name), kvs), map)| {
+            let mut style = "default".to_string();
+            let mut src = None;
+            for (k, v) in kvs {
+                if k == "style" { style = v.clone(); }
+                if k == "src" { src = Some(v.clone()); }
+            }
+            Definition {
+                id,
+                name: name.unwrap_or_default(),
+                style,
+                patch: "".to_string(),
+                group: None,
+                env: None,
+                src,
+                tuning: None,
+                map,
+            }
+        })
+}
+
 pub fn parser() -> impl Parser<Token, Ast, Error = Simple<Token>> {
     let meta_entry = filter_map(|span, tok| match tok {
         Token::Identifier(k) => Ok(k),
         _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
     })
-    .then_ignore(just(Token::Symbol(":".to_string())))
-    .then(filter_map(|span, tok| match tok {
-        Token::String(v) => Ok(v),
+    .then_ignore(just(Token::Symbol(":".to_string())));
+
+    let meta_value_string = filter_map(|span, tok| match tok {
+        Token::String(v) => Ok(serde_json::Value::String(v)),
         _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
-    }));
+    });
+
+    let meta_value_map = just(Token::Symbol("@".to_string()))
+        .ignore_then(just(Token::Symbol("{".to_string())))
+        .ignore_then(
+            filter_map(|span, tok| match tok {
+                Token::Identifier(k) => Ok(k),
+                _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+            })
+            .then_ignore(just(Token::Symbol(":".to_string())))
+            .then(filter_map(|span, tok| match tok {
+                Token::String(v) => Ok(serde_json::Value::String(v)),
+                _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+            }))
+            .repeated()
+        )
+        .then_ignore(just(Token::Symbol("}".to_string())))
+        .map(|entries| {
+            let mut map = serde_json::Map::new();
+            for (k, v) in entries {
+                map.insert(k, v);
+            }
+            serde_json::Value::Object(map)
+        });
+
+    let meta_value = meta_value_string.or(meta_value_map);
 
     let meta_block = just(Token::Keyword("meta".to_string()))
         .ignore_then(just(Token::Symbol("@".to_string())))
         .ignore_then(just(Token::Symbol("{".to_string())))
-        .ignore_then(meta_entry.repeated())
+        .ignore_then(meta_entry.then(meta_value).repeated())
         .then_ignore(just(Token::Symbol("}".to_string())))
         .map(|entries| {
             let mut metadata = HashMap::new();
@@ -232,15 +360,25 @@ pub fn parser() -> impl Parser<Token, Ast, Error = Simple<Token>> {
             metadata
         });
 
-    meta_block.or_not()
+    let tenuto_header = just(Token::Keyword("tenuto".to_string()))
+        .ignore_then(filter_map(|span, tok| match tok {
+            Token::String(s) => Ok(s),
+            _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+        }))
+        .then_ignore(just(Token::Symbol("{".to_string())));
+
+    tenuto_header.or_not()
+        .ignore_then(meta_block.or_not())
+        .then(def_parser().repeated())
         .then(measure_parser().repeated().flatten())
-        .map(|(meta_opt, measures)| {
+        .then_ignore(just(Token::Symbol("}".to_string())).or_not())
+        .map(|((meta_opt, defs), measures)| {
             Ast {
                 version: "3.0.0".to_string(),
                 imports: Vec::new(),
                 vars: HashMap::new(),
                 meta: meta_opt.unwrap_or_default(),
-                defs: Vec::new(),
+                defs,
                 macros: Vec::new(),
                 deterministics: Vec::new(),
                 sustainability: Vec::new(),

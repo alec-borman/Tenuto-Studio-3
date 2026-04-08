@@ -18,18 +18,21 @@ measure 1 {
     const { svgs } = engraver.render(ast);
     const svg = svgs[0];
     
-    const staccatoMatch = svg.match(/<text[^>]*\sy="([^"]+)"[^>]*>\.<\/text>/);
-    const marcatoMatch = svg.match(/<text[^>]*\sy="([^"]+)"[^>]*>\^<\/text>/);
+    const staccatoMatch = svg.match(/<circle cx="[^"]+" cy="([^"]+)" r="2" fill="#1a1a1a" \/>/);
+    const marcatoMatch = svg.match(/<polygon points="[^"]+" fill="#1a1a1a" \/>/);
+    // For marcato, we need to extract the Y coordinate. The points are like "x,y x,y x,y x,y".
+    // Let's just use a more general match and extract the Y from the first point.
+    const marcatoYMatch = svg.match(/<polygon points="[^,]+,([^ ]+)\s[^"]+" fill="#1a1a1a" \/>/);
     
     console.log('staccatoMatch:', staccatoMatch);
-    console.log('marcatoMatch:', marcatoMatch);
+    console.log('marcatoMatch:', marcatoYMatch);
     
     expect(staccatoMatch).not.toBeNull();
-    expect(marcatoMatch).not.toBeNull();
+    expect(marcatoYMatch).not.toBeNull();
     
-    if (staccatoMatch && marcatoMatch) {
+    if (staccatoMatch && marcatoYMatch) {
       const staccatoY = parseFloat(staccatoMatch[1]);
-      const marcatoY = parseFloat(marcatoMatch[1]);
+      const marcatoY = parseFloat(marcatoYMatch[1]);
       
       // Since stem is up, articulations are below the notehead (Y increases downwards)
       // Wait, stemUp means stem goes up, so notehead is at the bottom, articulations are below?

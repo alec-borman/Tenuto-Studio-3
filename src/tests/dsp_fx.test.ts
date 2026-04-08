@@ -1,9 +1,67 @@
 import { describe, it, expect, vi } from 'vitest';
+import * as Tone from 'tone';
 import { AudioEngine } from '../audio/engine';
 import { AudioEvent } from '../compiler/audio';
 
+// Mock window
+(global as any).window = {
+  AudioContext: vi.fn().mockImplementation(function() {
+    return {
+      audioWorklet: {
+        addModule: vi.fn().mockResolvedValue(undefined)
+      },
+      createConvolver: vi.fn().mockReturnValue({
+        buffer: null,
+        connect: vi.fn()
+      }),
+      createGain: vi.fn().mockReturnValue({
+        gain: { value: 1, setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() },
+        connect: vi.fn(),
+        disconnect: vi.fn()
+      }),
+      createDelay: vi.fn().mockReturnValue({
+        delayTime: { value: 0 },
+        connect: vi.fn()
+      }),
+      createBuffer: vi.fn().mockReturnValue({
+        getChannelData: vi.fn().mockReturnValue(new Float32Array(88200))
+      }),
+      sampleRate: 44100,
+      destination: {}
+    };
+  })
+};
+
+(global as any).AudioNode = class AudioNode {
+  connect() {}
+  disconnect() {}
+};
+
 // Mock Tone.js and AudioContext
 vi.mock('tone', () => ({
+  __esModule: true,
+  start: vi.fn().mockResolvedValue(undefined),
+  setContext: vi.fn(),
+  Destination: {},
+  Gain: vi.fn().mockImplementation(function() {
+    return {
+      connect: vi.fn(),
+      toDestination: vi.fn()
+    };
+  }),
+  Reverb: vi.fn().mockImplementation(function() {
+    return {
+      generate: vi.fn().mockResolvedValue(undefined),
+      connect: vi.fn(),
+      toDestination: vi.fn()
+    };
+  }),
+  FeedbackDelay: vi.fn().mockImplementation(function() {
+    return {
+      connect: vi.fn(),
+      toDestination: vi.fn()
+    };
+  }),
   getContext: () => ({
     rawContext: {
       audioWorklet: {
@@ -37,7 +95,8 @@ vi.mock('smplr', () => ({
     return {
       output: { connect: vi.fn() },
       start: vi.fn(),
-      stop: vi.fn()
+      stop: vi.fn(),
+      loaded: vi.fn().mockResolvedValue(undefined)
     };
   })
 }));
@@ -81,10 +140,8 @@ describe('DSP: Isolated FX Chains & Routing Graphs', () => {
     expect(anyEngine.trackBuses['gm_piano']).toBeDefined();
     expect(anyEngine.trackBuses['gm_synth']).toBeDefined();
     
-    // Check if convolver and delay nodes were created
-    // We mocked createConvolver and createDelay, so we can check if they were called
-    const context = anyEngine.context;
-    expect(context.createConvolver).toHaveBeenCalled();
-    expect(context.createDelay).toHaveBeenCalled();
+    // Check if Tone.js FX nodes were created
+    expect(Tone.Reverb).toHaveBeenCalled();
+    expect(Tone.FeedbackDelay).toHaveBeenCalled();
   });
 });

@@ -47,6 +47,16 @@ pub fn to_midi(timeline: &Timeline) -> Result<Vec<u8>, String> {
                     }
                 });
             }
+            EventKind::MidiCC { controller, value } => {
+                let start_tick = ((node.logical_time.num as f64 / node.logical_time.den as f64) * 4.0 * timeline.ppq as f64).round() as u32;
+                events_by_tick.entry(start_tick).or_default().push(TrackEventKind::Midi {
+                    channel: midly::num::u4::new(0),
+                    message: MidiMessage::Controller {
+                        controller: midly::num::u7::new(*controller & 0x7F),
+                        value: midly::num::u7::new(*value & 0x7F),
+                    }
+                });
+            }
             _ => {
                 // Ignore other event kinds for MIDI
             }

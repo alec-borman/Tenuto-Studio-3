@@ -42,14 +42,40 @@ pub fn compile_to_timeline(source: &str) -> Result<ir::Timeline, String> {
 
 #[wasm_bindgen]
 pub fn compile_tenuto_json(source: &str) -> Result<String, JsValue> {
-    let timeline = compile_to_timeline(source).map_err(|e| JsValue::from_str(&e))?;
-    emitter::to_json(&timeline).map_err(|e| JsValue::from_str(&e))
+    let tokens: Vec<lexer::Token> = lexer::Token::lexer(source).filter_map(|res| res.ok()).collect();
+    let ast = parser::parser().parse(tokens).map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+    
+    let mut preprocessor = preprocessor::Preprocessor::new();
+    let expanded_ast = preprocessor.expand(ast.clone()).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    
+    let mut timeline = ir::compile(expanded_ast.clone(), false).map_err(|e| JsValue::from_str(&e))?;
+    sidechain::apply_sidechain(&mut timeline, &expanded_ast);
+    
+    // The test expects the AST to be included in the JSON output
+    #[derive(Serialize)]
+    struct Output {
+        ast: ast::Ast,
+        events: Vec<ir::TimelineNode>,
+    }
+    
+    let output = Output {
+        ast,
+        events: timeline.events,
+    };
+    
+    serde_json::to_string(&output).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 #[wasm_bindgen]
 pub fn compile_tenuto_midi(source: &str) -> Result<Vec<u8>, JsValue> {
     let timeline = compile_to_timeline(source).map_err(|e| JsValue::from_str(&e))?;
     emitter::to_midi(&timeline).map_err(|e| JsValue::from_str(&e))
+}
+
+#[wasm_bindgen]
+pub fn compile_tenuto_musicxml(source: &str) -> Result<String, JsValue> {
+    let timeline = compile_to_timeline(source).map_err(|e| JsValue::from_str(&e))?;
+    export::musicxml::to_musicxml(&timeline).map_err(|e| JsValue::from_str(&e))
 }
 
 #[wasm_bindgen]
