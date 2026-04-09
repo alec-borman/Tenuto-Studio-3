@@ -166,7 +166,13 @@ fn part_parser() -> impl Parser<Token, Part, Error = Simple<Token>> {
     })
     .then_ignore(just(Token::Symbol(":".to_string())));
 
-    let single_voice = voice_parser().map(|v| vec![v]);
+    let single_voice = event_parser().repeated().map(|vecs| {
+        let events = vecs.into_iter().flatten().collect();
+        vec![Voice {
+            id: "v1".to_string(),
+            events,
+        }]
+    });
 
     let multi_voice = just(Token::VoiceOpen)
         .ignore_then(voice_parser().separated_by(just(Token::Symbol("|".to_string()))))
