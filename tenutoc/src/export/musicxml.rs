@@ -213,6 +213,10 @@ impl XmlEmitter {
                         xml.push_str("      <forward>\n");
                         xml.push_str(&format!("        <duration>{}</duration>\n", dur));
                         xml.push_str("      </forward>\n");
+                    } else if current_tick == measure_end {
+                        xml.push_str("      <forward>\n");
+                        xml.push_str("        <duration>0</duration>\n");
+                        xml.push_str("      </forward>\n");
                     }
                 }
                 

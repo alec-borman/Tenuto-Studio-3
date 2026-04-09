@@ -20,9 +20,9 @@ fn modifier() -> impl Parser<Token, Modifier, Error = Simple<Token>> {
             Token::Identifier(s) => Ok(s),
             Token::Number(s) => Ok(s),
             Token::TimeVal(s) => Ok(s),
-            Token::Symbol(s) if s != ")" && s != "," => Ok(s),
+            Token::Symbol(s) if s != ")" => Ok(s),
             _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
-        }).separated_by(just(Token::Symbol(",".to_string()))))
+        }).repeated())
         .then_ignore(just(Token::Symbol(")".to_string())))
         .or_not())
     .map(|(name, args)| {
@@ -85,7 +85,7 @@ fn note_parser() -> impl Parser<Token, Vec<Event>, Error = Simple<Token>> {
                         modifiers.push(s);
                     },
                     Modifier::Call(name, args) => {
-                        modifiers.push(format!("{}({})", name, args.join(",")));
+                        modifiers.push(format!("{}({})", name, args.join("")));
                     }
                 }
             }
