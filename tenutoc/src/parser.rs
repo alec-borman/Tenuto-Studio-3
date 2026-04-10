@@ -262,7 +262,7 @@ fn def_parser() -> impl Parser<Token, Definition, Error = Simple<Token>> {
     let map_block = just(Token::Identifier("map".to_string()))
         .ignore_then(just(Token::Symbol("=".to_string())))
         .ignore_then(just(Token::MapOpen))
-        .ignore_then(map_entry.repeated())
+        .ignore_then(map_entry.separated_by(just(Token::Symbol(",".to_string()))).allow_trailing())
         .then_ignore(just(Token::Symbol("}".to_string())))
         .map(|entries| {
             let mut map = std::collections::BTreeMap::new();
@@ -321,8 +321,21 @@ pub fn parser() -> impl Parser<Token, Ast, Error = Simple<Token>> {
     })
     .then_ignore(just(Token::Symbol(":".to_string())));
 
-    let meta_value_string = filter_map(|span, tok| match tok {
+    let meta_value_scalar = filter_map(|span, tok| match tok {
         Token::String(v) => Ok(serde_json::Value::String(v)),
+        Token::Number(n) => {
+            if let Ok(num) = n.parse::<u64>() {
+                Ok(serde_json::Value::Number(num.into()))
+            } else if let Ok(num) = n.parse::<f64>() {
+                if let Some(num) = serde_json::Number::from_f64(num) {
+                    Ok(serde_json::Value::Number(num))
+                } else {
+                    Ok(serde_json::Value::String(n))
+                }
+            } else {
+                Ok(serde_json::Value::String(n))
+            }
+        },
         _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
     });
 
@@ -333,11 +346,9 @@ pub fn parser() -> impl Parser<Token, Ast, Error = Simple<Token>> {
                 _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
             })
             .then_ignore(just(Token::Symbol(":".to_string())))
-            .then(filter_map(|span, tok| match tok {
-                Token::String(v) => Ok(serde_json::Value::String(v)),
-                _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
-            }))
-            .repeated()
+            .then(meta_value_scalar.clone())
+            .separated_by(just(Token::Symbol(",".to_string())))
+            .allow_trailing()
         )
         .then_ignore(just(Token::Symbol("}".to_string())))
         .map(|entries| {
@@ -348,11 +359,15 @@ pub fn parser() -> impl Parser<Token, Ast, Error = Simple<Token>> {
             serde_json::Value::Object(map)
         });
 
-    let meta_value = meta_value_string.or(meta_value_map);
+    let meta_value = meta_value_scalar.clone().or(meta_value_map);
 
     let meta_block = just(Token::Keyword("meta".to_string()))
         .ignore_then(just(Token::MapOpen))
-        .ignore_then(meta_entry.then(meta_value).repeated())
+        .ignore_then(
+            meta_entry.then(meta_value)
+                .separated_by(just(Token::Symbol(",".to_string())))
+                .allow_trailing()
+        )
         .then_ignore(just(Token::Symbol("}".to_string())))
         .map(|entries| {
             let mut metadata = HashMap::new();
