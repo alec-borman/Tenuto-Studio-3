@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import init, { compile_tenuto_json } from './public/pkg/tenutoc.js'; 
+import init, { compile_tenuto_json } from './src/pkg/tenutoc.js'; 
 
 describe('Concrete Audio Engine Compliance', () => {
   it('parses style=concrete and evaluates granular slicing and stretch modifiers into the IR timeline', async () => {

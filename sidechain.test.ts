@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import init, { compile_tenuto_json } from './public/pkg/tenutoc.js'; 
+import init, { compile_tenuto_json } from './src/pkg/tenutoc.js'; 
 
 describe('Sidechain Ducking Engine Compliance', () => {
   it('parses the spacer token and generates CC automation lanes for sidechain routing', async () => {
