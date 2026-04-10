@@ -212,12 +212,11 @@ impl XmlEmitter {
                         let dur = measure_end - current_tick;
                         xml.push_str("      <forward>\n");
                         xml.push_str(&format!("        <duration>{}</duration>\n", dur));
-                        xml.push_str("      </forward>\n");
-                    } else if current_tick == measure_end {
+                        xml.push_str("      </forward>\n"); } else { xml.push_str(" <forward>\n <duration>0</duration>\n </forward>\n"); } else if current_tick == measure_end {
                         xml.push_str("      <forward>\n");
                         xml.push_str("        <duration>0</duration>\n");
                         xml.push_str("      </forward>\n");
-                    }
+                    } else { xml.push_str(" <forward>\n <duration>0</duration>\n </forward>\n"); }
                 }
                 
                 xml.push_str("    </measure>\n");
