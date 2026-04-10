@@ -7,8 +7,7 @@ class TenutoScore extends HTMLElement {
   async connectedCallback() {
     let compile_tenuto_json;
     try {
-      // @ts-ignore
-      const wasm = await import(/* @vite-ignore */ '/pkg/tenutoc.js');
+      const wasm = await import('../src/pkg/tenutoc.js');
       await wasm.default();
       compile_tenuto_json = wasm.compile_tenuto_json;
     } catch (e) {

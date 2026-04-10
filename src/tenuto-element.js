@@ -8,7 +8,6 @@ class TenutoScore extends HTMLElement {
     let compile_tenuto_json;
     try {
       // Initialize the Wasm module dynamically
-      // @ts-ignore
       const wasm = await import('./pkg/tenutoc.js');
       await wasm.default();
       compile_tenuto_json = wasm.compile_tenuto_json;

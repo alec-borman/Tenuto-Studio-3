@@ -39,7 +39,6 @@ async function bootCompiler() {
         
         // Task 2: Wasm Worker Connectivity (Production Fix #1)
         try {
-            // @ts-ignore
             const wasmModule = await import('./pkg/tenutoc.js');
             await wasmModule.default(); 
             wasmCore = wasmModule;
@@ -104,13 +103,13 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
         try {
             if (wasmCore !== null) {
                 // @ts-ignore
-                if (typeof wasmCore.compile_tenuto_to_ir_json === 'function') {
+                if (typeof wasmCore.compile_tenuto_json === 'function') {
                     // @ts-ignore
-                    wasmIrString = wasmCore.compile_tenuto_to_ir_json(processedCode);
+                    wasmIrString = wasmCore.compile_tenuto_json(processedCode);
                     wasmAst = JSON.parse(wasmIrString);
                     wasmSuccess = true;
                 } else {
-                    throw new Error("Wasm module not loaded or compile_tenuto_to_ir_json not found.");
+                    throw new Error("Wasm module not loaded or compile_tenuto_json not found.");
                 }
             } else {
                  throw new Error("Wasm engine is not active or not loaded yet.");
