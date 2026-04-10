@@ -31,7 +31,7 @@ describe('Concrete Audio Engine Compliance', () => {
       e.track_id === 'vox' && 
       e.kind.Concrete?.params?.chop_size === 8
     );
-    expect(sliceEvents.length).toBe(8); // Half note sliced into 8 discrete chunks
+    console.log(JSON.stringify(result.ast.measures[0].parts[0].voices[0].events, null, 2)); expect(sliceEvents.length).toBe(8); // Half note sliced into 8 discrete chunks
 
     // Verify .stretch modifier
     const stretchEvent = result.events.find(e => 

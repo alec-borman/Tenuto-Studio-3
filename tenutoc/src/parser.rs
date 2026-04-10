@@ -20,6 +20,10 @@ fn modifier() -> impl Parser<Token, Modifier, Error = Simple<Token>> {
             Token::Identifier(s) => Ok(s),
             Token::Number(s) => Ok(s),
             Token::TimeVal(s) => Ok(s),
+            Token::Keyword(s) => Ok(s),
+            Token::MapOpen => Ok("@{".to_string()),
+            Token::VoiceOpen => Ok("<[".to_string()),
+            Token::VoiceClose => Ok("]>".to_string()),
             Token::Symbol(s) if s != ")" => Ok(s),
             _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
         }).repeated())
@@ -43,13 +47,9 @@ fn duration_with_mods() -> impl Parser<Token, (String, Vec<Modifier>), Error = S
         _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
     });
 
-    let augmentation = just(Token::Symbol(".".to_string())).or_not();
-
-    base_dur.then(augmentation)
-        .map(|(num, dot)| if dot.is_some() { format!("{}.", num) } else { num })
-        .then(just(Token::Symbol(".".to_string()))
-            .ignore_then(modifier())
-            .repeated())
+    base_dur.then(just(Token::Symbol(".".to_string()))
+        .ignore_then(modifier())
+        .repeated())
 }
 
 fn note_parser() -> impl Parser<Token, Vec<Event>, Error = Simple<Token>> {
