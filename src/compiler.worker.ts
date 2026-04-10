@@ -40,7 +40,7 @@ async function bootCompiler() {
         // Task 2: Wasm Worker Connectivity (Production Fix #1)
         try {
             // @ts-ignore
-            const wasmPath = '/pkg/tenutoc.js';
+            const wasmPath = import.meta.env.BASE_URL + 'pkg/tenutoc.js';
             const wasmModule = await import(/* @vite-ignore */ wasmPath);
             await wasmModule.default(); 
             wasmCore = wasmModule;
