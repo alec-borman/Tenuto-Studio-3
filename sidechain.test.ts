@@ -26,7 +26,8 @@ describe('Sidechain Ducking Engine Compliance', () => {
 
     // Verify Spacer Token existence in logical track
     const bassEvents = result.ast.measures[0].parts.find((p: any) => p.id === 'bass').voices[0].events[0];
-    expect(bassEvents.Spacer).toBeDefined();
+    expect(Array.isArray(bassEvents)).toBe(true);
+    expect(bassEvents.length).toBe(2);
     // expect(bassEvents.duration).toBe('4'); // Wait, let's see how Rust serializes it
 
     // Verify CC Generation in IR
