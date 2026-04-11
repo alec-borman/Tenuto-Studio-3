@@ -5,7 +5,7 @@ import init, { compile_tenuto_json } from './src/pkg/tenutoc.js';
 
 describe('Sidechain Ducking Engine Compliance', () => {
   it('parses the spacer token and generates CC automation lanes for sidechain routing', async () => {
-    const wasmBuffer = readFileSync(resolve(__dirname, './public/pkg/tenutoc_bg.wasm'));
+    const wasmBuffer = readFileSync(resolve(__dirname, './src/pkg/tenutoc_bg.wasm'));
     await init(wasmBuffer);
 
     const tenutoSource = `

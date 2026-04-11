@@ -5,7 +5,7 @@ import init, { compile_tenuto_musicxml } from './src/pkg/tenutoc.js';
 
 describe('MusicXML Export Engine Compliance', () => {
   it('exports valid MusicXML 4.0 handling polyphony with backup/forward tags', async () => {
-    const wasmBuffer = readFileSync(resolve(__dirname, './public/pkg/tenutoc_bg.wasm'));
+    const wasmBuffer = readFileSync(resolve(__dirname, './src/pkg/tenutoc_bg.wasm'));
     await init(wasmBuffer);
 
     const tenutoSource = `
