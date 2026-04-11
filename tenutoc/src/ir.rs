@@ -275,8 +275,8 @@ fn parse_modifiers(mods: &[String]) -> ParsedModifiers {
             }
         } else if m.starts_with("slice(") && m.ends_with(")") {
             let inner = &m[6..m.len()-1];
-            if let Ok(val) = inner.parse::<u32>() {
-                chop_size = Some(val);
+            if let Ok(num) = inner.parse::<u32>() {
+                chop_size = Some(num);
             }
         } else if m == "stretch" {
             stretch_factor = Some(Rational::new(1, 1));

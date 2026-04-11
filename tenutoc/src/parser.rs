@@ -96,12 +96,13 @@ fn note_parser() -> impl Parser<Token, Vec<Event>, Error = Simple<Token>> {
             for i in 0..steps {
                 let is_hit = (i * hits) % steps < hits;
                 if is_hit {
-                    if pitch_lit == "s" {
+                    let pitch = pitch_lit.clone();
+                    if pitch == "s" {
                         events.push(Event::Spacer(Some(duration.clone()), modifiers.clone()));
-                    } else if pitch_lit == "r" {
+                    } else if pitch == "r" {
                         events.push(Event::Rest(Some(duration.clone())));
                     } else {
-                        events.push(Event::Note(pitch_lit.clone(), Some(duration.clone()), modifiers.clone()));
+                        events.push(Event::Note(pitch, Some(duration.clone()), modifiers.clone()));
                     }
                 } else {
                     events.push(Event::Rest(Some(duration.clone())));
