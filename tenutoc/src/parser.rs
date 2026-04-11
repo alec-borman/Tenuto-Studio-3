@@ -289,12 +289,39 @@ fn def_parser() -> impl Parser<Token, Definition, Error = Simple<Token>> {
             map
         });
 
-    just(Token::Keyword("def".to_string()))
+    let env_entry = filter_map(|span, tok| match tok {
+        Token::Identifier(i) => Ok(i),
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    })
+    .then_ignore(just(Token::Symbol(":".to_string())))
+    .then(filter_map(|span, tok| match tok {
+        Token::TimeVal(t) => Ok(t),
+        Token::Number(n) => Ok(n),
+        Token::String(s) => Ok(s),
+        Token::Identifier(i) => Ok(i),
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    }));
+
+    let env_block = just(Token::Identifier("env".to_string()))
+        .ignore_then(just(Token::Symbol("=".to_string())))
+        .ignore_then(just(Token::MapOpen))
+        .ignore_then(env_entry.separated_by(just(Token::Symbol(",".to_string()))).allow_trailing())
+        .then_ignore(just(Token::Symbol("}".to_string())))
+        .map(|entries| {
+            let mut map = std::collections::HashMap::new();
+            for (k, v) in entries {
+                map.insert(k, v);
+            }
+            map
+        });
+
+    just(Token::Keyword(def.to_string()))
         .ignore_then(id)
         .then(name.or_not())
         .then(kv_pair.repeated())
+        .then(env_block.or_not())
         .then(map_block.or_not())
-        .map(|(((id, name), kvs), map)| {
+        .map(|((((id, name), kvs), env), map)| {
             let mut style = "default".to_string();
             let mut src = None;
             for (k, v) in kvs {
@@ -307,7 +334,7 @@ fn def_parser() -> impl Parser<Token, Definition, Error = Simple<Token>> {
                 style,
                 patch: "".to_string(),
                 group: None,
-                env: None,
+                env,
                 src,
                 tuning: None,
                 map,
