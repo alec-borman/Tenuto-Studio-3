@@ -439,7 +439,7 @@ pub fn parser() -> impl Parser<Token, Ast, Error = Simple<Token>> {
         }));
 
     let macro_parser = filter_map(|span, tok| match tok {
-        Token::Identifier(i) if i.starts_with('
+        Token::Identifier(i) if i.starts_with('$') => Ok(i),
         _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
     })
     .then_ignore(just(Token::Symbol("=".to_string())))
@@ -455,109 +455,7 @@ pub fn parser() -> impl Parser<Token, Ast, Error = Simple<Token>> {
         .then(def_parser().repeated())
         .then(measure_parser().repeated().flatten())
         .then_ignore(just(Token::Symbol("}".to_string())).or_not())
-        .map(|(((((vars_vec, meta_opt), macros), defs), measures)| {
-            let mut vars = HashMap::new();
-            for (k, v) in vars_vec {
-                vars.insert(k, v);
-            }
-            Ast {
-                version: "3.0.0".to_string(),
-                imports: Vec::new(),
-                vars,
-                meta: meta_opt.unwrap_or_default(),
-                defs,
-                macros,
-                deterministics: Vec::new(),
-                sustainability: Vec::new(),
-                measures,
-            }
-        }).then_ignore(end())
-}
-) => Ok(i),
-        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
-    })
-    .then_ignore(just(Token::Symbol("=".to_string())))
-    .then_ignore(just(Token::Symbol("{".to_string())))
-    .then(event_parser().repeated().map(|vecs| vecs.into_iter().flatten().collect()))
-    .then_ignore(just(Token::Symbol("}".to_string())))
-    .map(|(id, events)| MacroDef { id, events });
-
-    tenuto_header.or_not()
-        .ignore_then(var_parser.repeated())
-        .then(meta_block.or_not())
-        .then(macro_parser.repeated())
-        .then(def_parser().repeated())
-        .then(measure_parser().repeated().flatten())
-        .then_ignore(just(Token::Symbol("}".to_string())).or_not())
-        .map(|(((((vars_vec, meta_opt), macros), defs), measures)| {
-            let mut vars = HashMap::new();
-            for (k, v) in vars_vec {
-                vars.insert(k, v);
-            }
-            Ast {
-                version: "3.0.0".to_string(),
-                imports: Vec::new(),
-                vars,
-                meta: meta_opt.unwrap_or_default(),
-                defs,
-                macros,
-                deterministics: Vec::new(),
-                sustainability: Vec::new(),
-                measures,
-            }
-        }).then_ignore(end())
-}
-) => Ok(i),
-        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
-    })
-    .then_ignore(just(Token::Symbol("=".to_string())))
-    .then_ignore(just(Token::Symbol("{".to_string())))
-    .then(event_parser().repeated().map(|vecs| vecs.into_iter().flatten().collect()))
-    .then_ignore(just(Token::Symbol("}".to_string())))
-    .map(|(id, events)| MacroDef { id, events });
-
-    tenuto_header.or_not()
-        .ignore_then(var_parser.repeated())
-        .then(meta_block.or_not())
-        .then(macro_parser.repeated())
-        .then(def_parser().repeated())
-        .then(measure_parser().repeated().flatten())
-        .then_ignore(just(Token::Symbol("}".to_string())).or_not())
-        .map(|(((((vars_vec, meta_opt), macros), defs), measures)| {
-            let mut vars = HashMap::new();
-            for (k, v) in vars_vec {
-                vars.insert(k, v);
-            }
-            Ast {
-                version: "3.0.0".to_string(),
-                imports: Vec::new(),
-                vars,
-                meta: meta_opt.unwrap_or_default(),
-                defs,
-                macros,
-                deterministics: Vec::new(),
-                sustainability: Vec::new(),
-                measures,
-            }
-        }).then_ignore(end())
-}
-) => Ok(i),
-        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
-    })
-    .then_ignore(just(Token::Symbol("=".to_string())))
-    .then_ignore(just(Token::Symbol("{".to_string())))
-    .then(event_parser().repeated().map(|vecs| vecs.into_iter().flatten().collect()))
-    .then_ignore(just(Token::Symbol("}".to_string())))
-    .map(|(id, events)| MacroDef { id, events });
-
-    tenuto_header.or_not()
-        .ignore_then(var_parser.repeated())
-        .then(meta_block.or_not())
-        .then(macro_parser.repeated())
-        .then(def_parser().repeated())
-        .then(measure_parser().repeated().flatten())
-        .then_ignore(just(Token::Symbol("}".to_string())).or_not())
-        .map(|(((((vars_vec, meta_opt), macros), defs), measures)| {
+        .map(|((((vars_vec, meta_opt), macros), defs), measures)| {
             let mut vars = HashMap::new();
             for (k, v) in vars_vec {
                 vars.insert(k, v);
