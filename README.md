@@ -124,6 +124,11 @@ For remaining work, see our `ROADMAP.md` and the Tenuto 3.0 Specification.
 #### 🤝 Contributing & CI Delta Tracking
 Tenuto uses the **Teleportation Protocol** for development. All contributions must be accompanied by a `.tela` sprint file. Our GitHub Actions CI automatically computes the **Vector Delta** between your code and the target blueprint. Pull requests must achieve a delta of `<= 0.02` to be merged. See `CONTRIBUTING.md` for details.
 
+#### 🛡️ Sustainability & Backing
+Tenuto 3.0 is a sovereign, open-source project built to fundamentally solve the AI music representation gap. If this architecture helps your team, or if you want to accelerate the development of the upcoming **Full SVG Engraving** engine, consider supporting the core development directly:
+
+☕ **[Support the Architect via PayPal](https://paypal.me/alecborman)**
+
 #### 🌍 Portability & Cross-Device Execution
 Tenuto Studio is designed under the **Local-First Covenant**. Because the core compiler (`tenutoc`) is written in memory-safe Rust and targets `wasm32-unknown-unknown`, it is inherently portable to almost any device:
 *   **Mobile & Tablets (iOS/Android):** The `<tenuto-score>` Web Component runs natively in mobile browsers (Safari/Chrome) without modification.
