@@ -106,7 +106,8 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
                 if (typeof wasmCore.compile_tenuto_json === 'function') {
                     // @ts-ignore
                     wasmIrString = wasmCore.compile_tenuto_json(processedCode);
-                    wasmAst = JSON.parse(wasmIrString);
+                    const parsedPayload = JSON.parse(wasmIrString);
+                    wasmAst = parsedPayload.ast;
                     wasmSuccess = true;
                 } else {
                     throw new Error("Wasm module not loaded or compile_tenuto_json not found.");
