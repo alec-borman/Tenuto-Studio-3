@@ -96,6 +96,7 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
         let wasmDiagnostics: any[] = [];
         let wasmSuccess = false;
         let wasmAst: any = null;
+        let parsedPayload: any = null;
         let wasmIrString: string = "";
 
         // Track B: Defensive Wasm (Production Track)
@@ -106,7 +107,7 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
                 if (typeof wasmCore.compile_tenuto_json === 'function') {
                     // @ts-ignore
                     wasmIrString = wasmCore.compile_tenuto_json(processedCode);
-                    const parsedPayload = JSON.parse(wasmIrString);
+                    parsedPayload = JSON.parse(wasmIrString);
                     wasmAst = parsedPayload.ast;
                     wasmSuccess = true;
                 } else {
@@ -182,9 +183,24 @@ self.onmessage = async (e: MessageEvent<CompilerRequest>) => {
             const midiGen = new MIDIGenerator();
             midiBytes = midiGen.generate(wasmAst);
             
-            // Generate audio events directly from AST
-            const audioGen = new AudioEventGenerator();
-            const audioEvents = audioGen.generate(wasmAst);
+            const audioEvents = parsedPayload.events.map((node: any) => {
+                let pitch_midi = 0;
+                let velocity = 0;
+                if (node.kind && node.kind.Note) {
+                    pitch_midi = node.kind.Note.pitch_midi || 0;
+                    velocity = node.kind.Note.velocity || 0;
+                }
+                return {
+                    time: (node.logical_time.num / node.logical_time.den) * 4,
+                    duration: (node.logical_duration.num / node.logical_duration.den) * 4,
+                    instrument: node.track_id,
+                    style: node.track_style,
+                    patch: node.track_patch,
+                    note: pitch_midi,
+                    midi: pitch_midi,
+                    velocity: velocity
+                };
+            });
             
             // Use our new TS-based engraver
             // const engraver = new SVGEngraver();
