@@ -182,7 +182,7 @@ fn part_parser() -> impl Parser<Token, Part, Error = Simple<Token>> {
     part_id.then(multi_voice.or(single_voice)).map(|(id, voices)| {
         Part {
             id,
-            meta: None,
+            meta: None.unwrap_or_default(),
             voices,
         }
     })
@@ -207,7 +207,7 @@ fn measure_parser() -> impl Parser<Token, Vec<Measure>, Error = Simple<Token>> {
             for num in start..=end {
                 measures.push(Measure {
                     number: num,
-                    meta: None,
+                    meta: None.unwrap_or_default(),
                     parts: parts.clone(),
                     markers: None,
                     index: None,
@@ -364,6 +364,8 @@ pub fn parser() -> impl Parser<Token, Ast, Error = Simple<Token>> {
 
     let meta_value_scalar = filter_map(|span, tok| match tok {
         Token::String(v) => Ok(serde_json::Value::String(v)),
+        Token::TimeVal(v) => Ok(serde_json::Value::String(v)),
+        Token::Identifier(i) => Ok(serde_json::Value::String(i)),
         Token::Number(n) => {
             if let Ok(num) = n.parse::<u64>() {
                 Ok(serde_json::Value::Number(num.into()))

@@ -36,7 +36,7 @@ pub struct MacroDef {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Measure {
     pub number: usize,
-    pub meta: Option<HashMap<String, String>>,
+    pub meta: HashMap<String, String>,
     pub parts: Vec<Part>,
     pub markers: Option<Vec<String>>,
     pub index: Option<u32>,
@@ -47,7 +47,7 @@ pub struct Measure {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Part {
     pub id: String,
-    pub meta: Option<HashMap<String, String>>,
+    pub meta: HashMap<String, String>,
     pub voices: Vec<Voice>,
 }
 
