@@ -315,7 +315,7 @@ fn def_parser() -> impl Parser<Token, Definition, Error = Simple<Token>> {
             map
         });
 
-    just(Token::Keyword(def.to_string()))
+    just(Token::Keyword("def".to_string()))
         .ignore_then(id)
         .then(name.or_not())
         .then(kv_pair.repeated())
@@ -324,19 +324,25 @@ fn def_parser() -> impl Parser<Token, Definition, Error = Simple<Token>> {
         .map(|((((id, name), kvs), env), map)| {
             let mut style = "default".to_string();
             let mut src = None;
+            let mut patch = "".to_string();
+            let mut group = None;
+            let mut tuning = None;
             for (k, v) in kvs {
                 if k == "style" { style = v.clone(); }
                 if k == "src" { src = Some(v.clone()); }
+                if k == "patch" { patch = v.clone(); }
+                if k == "group" { group = Some(v.clone()); }
+                if k == "tuning" { tuning = Some(v.clone()); }
             }
             Definition {
                 id,
                 name: name.unwrap_or_default(),
                 style,
-                patch: "".to_string(),
-                group: None,
+                patch,
+                group,
                 env,
                 src,
-                tuning: None,
+                tuning,
                 map,
             }
         })
@@ -412,19 +418,50 @@ pub fn parser() -> impl Parser<Token, Ast, Error = Simple<Token>> {
         }))
         .then_ignore(just(Token::Symbol("{".to_string())));
 
+    let var_parser = just(Token::Keyword("var".to_string()))
+        .ignore_then(filter_map(|span, tok| match tok {
+            Token::Identifier(i) => Ok(i),
+            _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+        }))
+        .then_ignore(just(Token::Symbol("=".to_string())))
+        .then(filter_map(|span, tok| match tok {
+            Token::String(s) => Ok(s),
+            Token::Number(n) => Ok(n),
+            Token::Identifier(i) => Ok(i),
+            _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+        }));
+
+    let macro_parser = filter_map(|span, tok| match tok {
+        Token::Identifier(i) if i.starts_with('
+}
+) => Ok(i),
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    })
+    .then_ignore(just(Token::Symbol("=".to_string())))
+    .then_ignore(just(Token::Symbol("{".to_string())))
+    .then(event_parser().repeated().map(|vecs| vecs.into_iter().flatten().collect()))
+    .then_ignore(just(Token::Symbol("}".to_string())))
+    .map(|(id, events)| MacroDef { id, events });
+
     tenuto_header.or_not()
-        .ignore_then(meta_block.or_not())
+        .ignore_then(var_parser.repeated())
+        .then(meta_block.or_not())
+        .then(macro_parser.repeated())
         .then(def_parser().repeated())
         .then(measure_parser().repeated().flatten())
         .then_ignore(just(Token::Symbol("}".to_string())).or_not())
-        .map(|((meta_opt, defs), measures)| {
+        .map(|(((((vars_vec, meta_opt), macros), defs), measures)| {
+            let mut vars = HashMap::new();
+            for (k, v) in vars_vec {
+                vars.insert(k, v);
+            }
             Ast {
                 version: "3.0.0".to_string(),
                 imports: Vec::new(),
-                vars: HashMap::new(),
+                vars,
                 meta: meta_opt.unwrap_or_default(),
                 defs,
-                macros: Vec::new(),
+                macros,
                 deterministics: Vec::new(),
                 sustainability: Vec::new(),
                 measures,
