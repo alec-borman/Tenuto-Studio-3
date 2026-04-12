@@ -1,5 +1,5 @@
 use crate::ast::{Definition, Value};
-use crate::ir::{ConcreteParams, EventKind, Rational, TimeVal, TimelineNode};
+use crate::ir::{EventKind, Rational, TimeVal, TimelineNode};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]

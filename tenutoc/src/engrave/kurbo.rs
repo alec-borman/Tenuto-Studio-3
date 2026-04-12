@@ -29,13 +29,13 @@ impl Kurbo {
         };
 
         let steps = 20;
-        let mut max_violation = 0.0;
-        let mut max_violation_t = 0.0;
+        let mut _max_violation = 0.0;
+        let mut _max_violation_t = 0.0;
         let mut iterations = 0;
 
         loop {
-            max_violation = 0.0;
-            max_violation_t = 0.0;
+            _max_violation = 0.0;
+            _max_violation_t = 0.0;
 
             for i in 0..=steps {
                 let t = i as f32 / steps as f32;
@@ -46,37 +46,37 @@ impl Kurbo {
                 if is_top {
                     if skyline_y != 0.0 && pt.y > skyline_y - 5.0 {
                         let violation = pt.y - (skyline_y - 5.0);
-                        if violation > max_violation {
-                            max_violation = violation;
-                            max_violation_t = t;
+                        if violation > _max_violation {
+                            _max_violation = violation;
+                            _max_violation_t = t;
                         }
                     }
                 } else {
                     if skyline_y != 0.0 && pt.y < skyline_y + 5.0 {
                         let violation = (skyline_y + 5.0) - pt.y;
-                        if violation > max_violation {
-                            max_violation = violation;
-                            max_violation_t = t;
+                        if violation > _max_violation {
+                            _max_violation = violation;
+                            _max_violation_t = t;
                         }
                     }
                 }
             }
 
-            if max_violation > 0.0 {
-                if max_violation_t < 0.5 {
-                    p1.y += dir * (max_violation * 2.0 + 2.0);
-                    p2.y += dir * (max_violation * 1.0 + 2.0);
-                } else if max_violation_t > 0.5 {
-                    p1.y += dir * (max_violation * 1.0 + 2.0);
-                    p2.y += dir * (max_violation * 2.0 + 2.0);
+            if _max_violation > 0.0 {
+                if _max_violation_t < 0.5 {
+                    p1.y += dir * (_max_violation * 2.0 + 2.0);
+                    p2.y += dir * (_max_violation * 1.0 + 2.0);
+                } else if _max_violation_t > 0.5 {
+                    p1.y += dir * (_max_violation * 1.0 + 2.0);
+                    p2.y += dir * (_max_violation * 2.0 + 2.0);
                 } else {
-                    p1.y += dir * (max_violation * 1.5 + 2.0);
-                    p2.y += dir * (max_violation * 1.5 + 2.0);
+                    p1.y += dir * (_max_violation * 1.5 + 2.0);
+                    p2.y += dir * (_max_violation * 1.5 + 2.0);
                 }
             }
 
             iterations += 1;
-            if max_violation <= 0.0 || iterations >= 10 {
+            if _max_violation <= 0.0 || iterations >= 10 {
                 break;
             }
         }

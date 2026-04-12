@@ -1,5 +1,4 @@
 use crate::ast::*;
-use crate::ir::*;
 
 pub struct Embedder {
     dimensions: usize,

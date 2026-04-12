@@ -204,7 +204,7 @@ fn render_event(
             svg.push_str(&format!("<path d=\"M {} {} L {} {} L {} {} L {} {}\" fill=\"none\" stroke=\"#000\" stroke-width=\"1\" />", pe.x, staff_y - 10.0, pe.x, staff_y - 15.0, pe.x + 20.0, staff_y - 15.0, pe.x + 20.0, staff_y - 10.0));
             svg.push_str(&format!("<text x=\"{}\" y=\"{}\" font-family=\"serif\" font-size=\"10px\">{}</text>", pe.x + 10.0, staff_y - 18.0, ratio.num));
         }
-        Event::MacroCall(_) => {}
+        Event::MacroCall(_) => {}, Event::Euclidean(_, _, _) => {}
     }
     svg
 }

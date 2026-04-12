@@ -1,7 +1,7 @@
 // MusicXML export
-use crate::ir::{Timeline, TimelineNode, EventKind, Rational};
+use crate::ir::{Timeline, TimelineNode, EventKind};
 use crate::spelling::{AccidentalStateMachine, AccidentalDisplay, Step};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{HashMap};
 
 pub struct XmlEmitter {
     state_machine: AccidentalStateMachine,
