@@ -276,7 +276,7 @@ fn def_parser() -> impl Parser<Token, Definition, Error = Simple<Token>> {
                 // Let's look at AST Value. It's Array(Vec<Rational>) or Scalar(Rational).
                 // Let's just create a dummy Rational for now, or parse the number part.
                 let parse_time = |t: String| -> crate::ir::TimeVal {
-                    let num_str: String = t.chars().take_while(|c| c.is_ascii_digit() || c == '.' || c == '-').collect();
+                    let num_str: String = t.chars().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-').collect();
                     let num = num_str.parse::<i64>().unwrap_or(0);
                     let r = crate::ir::Rational::new(num, 1);
                     if t.ends_with("ms") {
@@ -339,7 +339,7 @@ fn def_parser() -> impl Parser<Token, Definition, Error = Simple<Token>> {
                 if k == "src" { src = Some(v.clone()); }
                 if k == "patch" { patch = v.clone(); }
                 if k == "group" { group = Some(v.clone()); }
-                if k == "tuning" { tuning = Some(v.clone()); }
+                if k == "tuning" { tuning = Some(v.trim_matches(|c| c == '[' || c == ']').split(",").filter_map(|s| s.trim().parse().ok()).collect()); }
             }
             Definition {
                 id,

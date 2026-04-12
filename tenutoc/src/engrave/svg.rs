@@ -195,7 +195,7 @@ fn render_event(
             // Placeholder rendering for Rest
             svg.push_str(&format!("<text x=\"{}\" y=\"{}\" font-family=\"serif\" font-size=\"20px\">𝄽</text>", pe.x, staff_y + 20.0));
         }
-        Event::Spacer(dur) => {
+        Event::Spacer(dur, _) => {
             // Spacer is invisible, but we could add a debug rect if needed
         }
         Event::Tuplet(events, ratio) => {

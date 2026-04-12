@@ -26,8 +26,8 @@ pub fn parse_concrete_instrument(def: &Definition) -> Option<ConcreteInstrument>
         for (k, v) in def_map {
             if let Value::Array(ref arr) = v {
                 if arr.len() >= 2 {
-                    let start = TimeVal::Milliseconds(Rational::new(arr[0].num as i64, arr[0].den as i64));
-                    let end = TimeVal::Milliseconds(Rational::new(arr[1].num as i64, arr[1].den as i64));
+                    let start = arr[0].clone();
+                    let end = arr[1].clone();
                     map.insert(k.clone(), ConcreteSample { start, end });
                 }
             }
