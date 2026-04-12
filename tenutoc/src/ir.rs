@@ -72,7 +72,7 @@ pub enum LyricExtension {
     Melisma,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TimeVal {
     Milliseconds(Rational),
     Seconds(Rational),
@@ -292,10 +292,26 @@ fn parse_modifiers(mods: &[String]) -> ParsedModifiers {
         } else if m.starts_with("fx(") && m.ends_with(")") {
             fx_chain.push(m.clone());
         } else if m.starts_with("cc(") && m.ends_with(")") {
-            // e.g. cc(7, [8], "exp")
-            // This is a naive parser for the test. In a real scenario, we'd use a proper parser.
             let inner = &m[3..m.len()-1];
-            let parts: Vec<&str> = inner.split(',').collect();
+            let mut parts = Vec::new();
+            let mut current = String::new();
+            let mut in_array = false;
+            for c in inner.chars() {
+                if c == '[' {
+                    in_array = true;
+                    current.push(c);
+                } else if c == ']' {
+                    in_array = false;
+                    current.push(c);
+                } else if c == ',' && !in_array {
+                    parts.push(current.clone());
+                    current.clear();
+                } else {
+                    current.push(c);
+                }
+            }
+            parts.push(current);
+            
             if parts.len() >= 3 {
                 if let Ok(controller) = parts[0].trim().parse::<u8>() {
                     let mut values = Vec::new();
@@ -336,6 +352,11 @@ use crate::cursor::Cursor;
 pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
     let mut events = Vec::new();
     
+    let mut macros_map = HashMap::new();
+    for m in &ast.macros {
+        macros_map.insert(m.id.clone(), m.events.clone());
+    }
+    
     let mut defs_map = HashMap::new();
     for def in &ast.defs {
         defs_map.insert(def.id.clone(), def.clone());
@@ -352,7 +373,24 @@ pub fn compile(ast: Ast, _debug: bool) -> Result<Timeline, String> {
                 let mut current_time = *voice_time.get(&key).unwrap_or(&Rational::new(0, 1));
                 let mut cursor = voice_cursors.get(&key).cloned().unwrap_or_else(|| Cursor::new());
                 
-                for event in voice.events {
+                let mut flat_events = voice.events.clone();
+                let mut expanded = true;
+                while expanded {
+                    expanded = false;
+                    let mut next_events = Vec::new();
+                    for event in flat_events {
+                        if let crate::ast::Event::MacroCall(inv) = &event {
+                            if let Some(m_events) = macros_map.get(&inv.name) {
+                                next_events.extend(m_events.clone());
+                                expanded = true;
+                            }
+                        } else {
+                            next_events.push(event);
+                        }
+                    }
+                    flat_events = next_events;
+                }
+                for event in flat_events {
                     match event {
                         crate::ast::Event::Note(pitch, dur_opt, mods) => {
                             let dur = dur_opt.map(|d| parse_duration(&d)).unwrap_or(cursor.last_duration);

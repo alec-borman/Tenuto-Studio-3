@@ -26,6 +26,34 @@ pub fn apply_sidechain(timeline: &mut Timeline, ast: &Ast) {
     }
     
     // Second pass: apply ducking
-    // In a real implementation we would generate CC curves based on the sidechain sources
-    // For now, the test just checks if the spacer generates CC events, which is handled in ir.rs
+    let mut new_events = Vec::new();
+    for (target, source) in sidechain_map {
+        if let Some(source_events) = sidechain_sources.get(&source) {
+            for src_event in source_events {
+                let steps = 4;
+                let step_dur = src_event.logical_duration / Rational::new(steps, 1);
+                for i in 0..steps {
+                    let value = if i == 0 { 0 } else { (127 * i / (steps - 1)) as u8 };
+                    new_events.push(TimelineNode {
+                        track_id: target.clone(),
+                        voice_id: "sidechain_auto".to_string(),
+                        track_style: "automation".to_string(),
+                        track_patch: "default".to_string(),
+                        track_cut_group: None,
+                        logical_time: src_event.logical_time + (step_dur * Rational::new(i, 1)),
+                        logical_duration: step_dur,
+                        physical_offset: None,
+                        kind: EventKind::MidiCC { controller: 11, value },
+                        lyric: None,
+                        lyric_extension: crate::ir::LyricExtension::None,
+                        synth_accelerate_semitones: None,
+                        pan: None,
+                        orbit: None,
+                        fx_chain: Vec::new(),
+                    });
+                }
+            }
+        }
+    }
+    timeline.events.extend(new_events);
 }

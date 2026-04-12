@@ -84,8 +84,8 @@ pub struct Rational {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum Value {
-    Array(Vec<Rational>),
-    Scalar(Rational),
+    Array(Vec<crate::ir::TimeVal>),
+    Scalar(crate::ir::TimeVal),
 }
 
 pub type PitchLit = String;

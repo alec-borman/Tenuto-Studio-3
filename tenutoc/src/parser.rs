@@ -275,10 +275,17 @@ fn def_parser() -> impl Parser<Token, Definition, Error = Simple<Token>> {
                 // Wait, TimeVal is a string like "0ms". Let's just store it as a Rational where num is the parsed number if possible, or we might need to change the AST.
                 // Let's look at AST Value. It's Array(Vec<Rational>) or Scalar(Rational).
                 // Let's just create a dummy Rational for now, or parse the number part.
-                let parse_time = |t: String| -> Rational {
-                    let num_str: String = t.chars().take_while(|c| c.is_ascii_digit()).collect();
-                    let num = num_str.parse::<u32>().unwrap_or(0);
-                    Rational { num, den: 1 }
+                let parse_time = |t: String| -> crate::ir::TimeVal {
+                    let num_str: String = t.chars().take_while(|c| c.is_ascii_digit() || c == '.' || c == '-').collect();
+                    let num = num_str.parse::<i64>().unwrap_or(0);
+                    let r = crate::ir::Rational::new(num, 1);
+                    if t.ends_with("ms") {
+                        crate::ir::TimeVal::Milliseconds(r)
+                    } else if t.ends_with("s") {
+                        crate::ir::TimeVal::Seconds(r)
+                    } else {
+                        crate::ir::TimeVal::Ticks(r)
+                    }
                 };
                 let mut arr = vec![parse_time(v1)];
                 if let Some(v2) = v2 {
@@ -433,6 +440,106 @@ pub fn parser() -> impl Parser<Token, Ast, Error = Simple<Token>> {
 
     let macro_parser = filter_map(|span, tok| match tok {
         Token::Identifier(i) if i.starts_with('
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    })
+    .then_ignore(just(Token::Symbol("=".to_string())))
+    .then_ignore(just(Token::Symbol("{".to_string())))
+    .then(event_parser().repeated().map(|vecs| vecs.into_iter().flatten().collect()))
+    .then_ignore(just(Token::Symbol("}".to_string())))
+    .map(|(id, events)| MacroDef { id, events });
+
+    tenuto_header.or_not()
+        .ignore_then(var_parser.repeated())
+        .then(meta_block.or_not())
+        .then(macro_parser.repeated())
+        .then(def_parser().repeated())
+        .then(measure_parser().repeated().flatten())
+        .then_ignore(just(Token::Symbol("}".to_string())).or_not())
+        .map(|(((((vars_vec, meta_opt), macros), defs), measures)| {
+            let mut vars = HashMap::new();
+            for (k, v) in vars_vec {
+                vars.insert(k, v);
+            }
+            Ast {
+                version: "3.0.0".to_string(),
+                imports: Vec::new(),
+                vars,
+                meta: meta_opt.unwrap_or_default(),
+                defs,
+                macros,
+                deterministics: Vec::new(),
+                sustainability: Vec::new(),
+                measures,
+            }
+        }).then_ignore(end())
+}
+) => Ok(i),
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    })
+    .then_ignore(just(Token::Symbol("=".to_string())))
+    .then_ignore(just(Token::Symbol("{".to_string())))
+    .then(event_parser().repeated().map(|vecs| vecs.into_iter().flatten().collect()))
+    .then_ignore(just(Token::Symbol("}".to_string())))
+    .map(|(id, events)| MacroDef { id, events });
+
+    tenuto_header.or_not()
+        .ignore_then(var_parser.repeated())
+        .then(meta_block.or_not())
+        .then(macro_parser.repeated())
+        .then(def_parser().repeated())
+        .then(measure_parser().repeated().flatten())
+        .then_ignore(just(Token::Symbol("}".to_string())).or_not())
+        .map(|(((((vars_vec, meta_opt), macros), defs), measures)| {
+            let mut vars = HashMap::new();
+            for (k, v) in vars_vec {
+                vars.insert(k, v);
+            }
+            Ast {
+                version: "3.0.0".to_string(),
+                imports: Vec::new(),
+                vars,
+                meta: meta_opt.unwrap_or_default(),
+                defs,
+                macros,
+                deterministics: Vec::new(),
+                sustainability: Vec::new(),
+                measures,
+            }
+        }).then_ignore(end())
+}
+) => Ok(i),
+        _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
+    })
+    .then_ignore(just(Token::Symbol("=".to_string())))
+    .then_ignore(just(Token::Symbol("{".to_string())))
+    .then(event_parser().repeated().map(|vecs| vecs.into_iter().flatten().collect()))
+    .then_ignore(just(Token::Symbol("}".to_string())))
+    .map(|(id, events)| MacroDef { id, events });
+
+    tenuto_header.or_not()
+        .ignore_then(var_parser.repeated())
+        .then(meta_block.or_not())
+        .then(macro_parser.repeated())
+        .then(def_parser().repeated())
+        .then(measure_parser().repeated().flatten())
+        .then_ignore(just(Token::Symbol("}".to_string())).or_not())
+        .map(|(((((vars_vec, meta_opt), macros), defs), measures)| {
+            let mut vars = HashMap::new();
+            for (k, v) in vars_vec {
+                vars.insert(k, v);
+            }
+            Ast {
+                version: "3.0.0".to_string(),
+                imports: Vec::new(),
+                vars,
+                meta: meta_opt.unwrap_or_default(),
+                defs,
+                macros,
+                deterministics: Vec::new(),
+                sustainability: Vec::new(),
+                measures,
+            }
+        }).then_ignore(end())
 }
 ) => Ok(i),
         _ => Err(Simple::expected_input_found(span, Vec::new(), Some(tok))),
