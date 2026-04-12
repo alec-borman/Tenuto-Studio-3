@@ -191,14 +191,14 @@ fn render_event(
                 svg.push_str(&render_note(pe, pitch, dur.as_deref(), mods, pe.x, next_pe.map(|p| p.x), staff_y, top_skyline, bottom_skyline, parts, staff_spacing, measure_x, state_machine));
             }
         }
-        Event::Rest(dur) => {
+        Event::Rest(_dur) => {
             // Placeholder rendering for Rest
             svg.push_str(&format!("<text x=\"{}\" y=\"{}\" font-family=\"serif\" font-size=\"20px\">𝄽</text>", pe.x, staff_y + 20.0));
         }
-        Event::Spacer(dur, _) => {
+        Event::Spacer(_dur, _) => {
             // Spacer is invisible, but we could add a debug rect if needed
         }
-        Event::Tuplet(events, ratio) => {
+        Event::Tuplet(_events, ratio) => {
             // Route inner events recursively
             // For now, just add a placeholder bracket
             svg.push_str(&format!("<path d=\"M {} {} L {} {} L {} {} L {} {}\" fill=\"none\" stroke=\"#000\" stroke-width=\"1\" />", pe.x, staff_y - 10.0, pe.x, staff_y - 15.0, pe.x + 20.0, staff_y - 15.0, pe.x + 20.0, staff_y - 10.0));

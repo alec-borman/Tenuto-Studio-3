@@ -270,19 +270,19 @@ impl EngraverLayout {
                 current_width += measures[j - 1].ideal_width;
                 let r = self.options.system_width / current_width;
 
-                let mut _cost = 0.0;
+                let mut cost = 0.0;
                 let is_last_line = j == n;
 
                 if r < 0.5 {
                     if j > i + 1 { break; }
-                    _cost = 10000.0;
+                    cost = 10000.0;
                 } else if r > 3.0 && !is_last_line {
-                    _cost = 10000.0;
+                    cost = 10000.0;
                 } else {
                     if is_last_line && r > 1.0 {
-                        _cost = (r - 1.0) * (r - 1.0) * 10.0;
+                        cost = (r - 1.0) * (r - 1.0) * 10.0;
                     } else {
-                        _cost = (r - 1.0) * (r - 1.0) * 100.0;
+                        cost = (r - 1.0) * (r - 1.0) * 100.0;
                     }
                 }
 
