@@ -1,35 +1,20 @@
 # Tenuto 3.0 Roadmap
 
-This document outlines the remaining features required to achieve full compliance with the Tenuto 3.0 specification. Every feature listed here will be driven by a specific `.tela` sprint and tracked via vector delta.
+This document outlines the remaining features required to achieve full compliance with the Tenuto 3.0 specification. Every feature listed here is driven by a specific `.tela` sprint and tracked via vector delta.
 
-## Remaining Features
+## Completed Sprints
+* **[COMPLETED] TENUTO-REMAINING-001 (Concrete Audio):** Mapped raw audio buffers to alphanumeric keys. Executed granular slicing and time-stretching natively.
+* **[COMPLETED] TENUTO-REMAINING-002 (Sidechain Ducking):** Implemented audio routing for sidechain compression and ducking effects directly from the AST using spacer tokens.
+* **[COMPLETED] TENUTO-REMAINING-003 (MusicXML Export):** Exported the Tenuto IR to standard MusicXML 4.0 format, supporting strict polyphony routing.
 
-### 1. Concrete Audio (`engine:concrete_audio`)
-*   **Description:** Map raw audio buffers to alphanumeric keys. Execute granular slicing, time-stretching, and phase-vocoding natively.
-*   **Priority:** High
-*   **Effort:** Large
-*   **Sprint:** `TENUTO-REMAINING-001`
+## Active Sprint
+* **[ACTIVE] TENUTO-REMAINING-004 (Full SVG Engraving):** 
+  * **Description:** Complete the visual sheet music rendering engine, moving beyond the current placeholder implementation. This sprint will fully leverage the Cassowary layout engine for horizontal justification and Skyline arrays for vertical collision detection.
+  * **Priority:** Medium
+  * **Effort:** Large
 
-### 2. Sidechain Ducking (`engine:sidechain_ducking`)
-*   **Description:** Implement audio routing for sidechain compression and ducking effects directly from the AST.
-*   **Priority:** Medium
-*   **Effort:** Medium
-*   **Sprint:** `TENUTO-REMAINING-002`
-
-### 3. MusicXML Export
-*   **Description:** Export the Tenuto IR to standard MusicXML format for compatibility with traditional notation software (Sibelius, Finale, Dorico).
-*   **Priority:** High
-*   **Effort:** Large
-*   **Sprint:** `TENUTO-REMAINING-003`
-
-### 4. Full SVG Engraving
-*   **Description:** Complete the visual sheet music rendering engine, moving beyond the current placeholder implementation.
-*   **Priority:** Medium
-*   **Effort:** Large
-*   **Sprint:** `TENUTO-REMAINING-004`
-
-### 5. Decompilation
-*   **Description:** Convert raw MIDI files back into semantic Tenuto code.
-*   **Priority:** Low
-*   **Effort:** Medium
-*   **Sprint:** `TENUTO-REMAINING-005`
+## Upcoming Sprints
+* **[PLANNED] TENUTO-REMAINING-005 (Decompilation):** 
+  * **Description:** Convert raw MIDI and MusicXML files back into highly compressed, semantic Tenuto code using algorithmic reverse inference (LZ77 macro extraction, Euclidean reverse-engineering).
+  * **Priority:** Low
+  * **Effort:** Medium
